@@ -1,0 +1,31 @@
+# Conflux RPC Configurations
+cfx:
+  ws: ws://test.confluxrpc.com/ws
+  http: http://test.confluxrpc.com
+  # retry: 3
+  # retryInterval: 1s
+  # requestTimeout: 3s
+# Metrics Configurations
+metrics:
+  enabled: false
+  namespace: f2n
+  influxdb:
+    host: http://127.0.0.1:8086
+    db:   web3pay
+    username:
+    password:
+  report:
+    enabled: false
+    interval: 10s
+# Logs Configurations
+log:
+  level: debug
+# Alert Configurations
+alert:
+  customTags: [web3pay, test]
+  dingtalk:
+    enabled: false
+    webhook: https://oapi.dingtalk.com/robot/send?access_token=${test_access_token}
+    secret: ${test_secret}
+    atMobiles: []
+    isAtAll: false
