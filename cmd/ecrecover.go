@@ -18,13 +18,13 @@ var ecrecoverCmd = &cobra.Command{
 	Args:       cobra.ExactArgs(2),
 	ArgAliases: []string{"signature", "message"},
 	Run: func(cmd *cobra.Command, args []string) {
-		logrus.Debug("ecrecover called", args)
+		logrus.WithFields(logrus.Fields{"args": args}).Debug("recover called")
 		signature, message := args[0], args[1]
 		address, err := util.RecoverAddress(message, signature)
 		if err != nil {
-			log.Fatal("recover fail", err)
+			logrus.WithFields(logrus.Fields{"error": err}).Fatal("recover fail", err)
 		}
-		logrus.Info("recovered address: ", address)
+		logrus.WithFields(logrus.Fields{"address": address}).Info("recovered")
 	},
 }
 
@@ -35,7 +35,7 @@ var signCmd = &cobra.Command{
 	Args:       cobra.ExactArgs(2),
 	ArgAliases: []string{"privateKey", "message"},
 	Run: func(cmd *cobra.Command, args []string) {
-		logrus.Debug("sign called", args)
+		logrus.WithFields(logrus.Fields{"args": args}).Debug("sign called")
 		pkString, message := args[0], args[1]
 		privateKey, err := crypto.HexToECDSA(pkString)
 		if err != nil {
@@ -44,7 +44,7 @@ var signCmd = &cobra.Command{
 		publicKey := privateKey.Public()
 		publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 		addressSig := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
-		logrus.Info("sign with address ", addressSig)
+		logrus.WithFields(logrus.Fields{"address": addressSig}).Info("sign with ")
 
 		input := message
 		signature, _, err := util.PersonalSign(input, privateKey)
@@ -52,7 +52,7 @@ var signCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		logrus.Info("signature ", signature, "length ", len(signature))
+		logrus.WithFields(logrus.Fields{"signature ": signature, "length ": len(signature)}).Info("result")
 	},
 }
 
