@@ -1,75 +1,41 @@
-/*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
-*/
 package cmd
 
 import (
 	"crypto/ecdsa"
-	"fmt"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sirupsen/logrus"
 	"log"
 
 	"github.com/spf13/cobra"
 )
 
-// Returns a signature string
-func PersonalSign(message string, privateKey *ecdsa.PrivateKey) (string, common.Hash, error) {
-	fullMessage := BuildPersonalSignMessage(message)
-	hash := crypto.Keccak256Hash([]byte(fullMessage))
-	signatureBytes, err := crypto.Sign(hash.Bytes(), privateKey)
-	if err != nil {
-		return "", hash, err
-	}
-	signatureBytes[64] += 27
-	return hexutil.Encode(signatureBytes), hash, nil
-}
-
-func BuildPersonalSignMessage(message string) string {
-	//It's metamask personal sign format.
-	fullMessage := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
-	return fullMessage
-}
-func RecoverAddress(message string, signature string) (string, error) {
-	decode, err := hexutil.Decode(signature)
-	decode[64] -= 27
-	hash := crypto.Keccak256Hash([]byte(BuildPersonalSignMessage(message)))
-	sigPublicKey, err := crypto.SigToPub(hash.Bytes(), decode)
-	if err != nil {
-		return "", err
-	}
-	address := crypto.PubkeyToAddress(*sigPublicKey).Hex()
-	return address, nil
-}
-
 // ecrecoverCmd represents the ecrecover command
 var ecrecoverCmd = &cobra.Command{
-	Use:        "recover signature message",
+	Use:        "recover <signature> <message>",
 	Short:      "Recover address",
 	Long:       `Recover address from message and its signature`,
 	Args:       cobra.ExactArgs(2),
 	ArgAliases: []string{"signature", "message"},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("ecrecover called", args)
+		logrus.Debug("ecrecover called", args)
 		signature, message := args[0], args[1]
-		address, err := RecoverAddress(message, signature)
+		address, err := util.RecoverAddress(message, signature)
 		if err != nil {
 			log.Fatal("recover fail", err)
 		}
-		fmt.Printf("recovered address: %s\n", address)
+		logrus.Info("recovered address: %s\n", address)
 	},
 }
 
 var signCmd = &cobra.Command{
-	Use:        "sign privateKey message",
+	Use:        "sign <privateKey> <message>",
 	Short:      "Sign message",
 	Long:       `Sign a message with private key in metamask style`,
 	Args:       cobra.ExactArgs(2),
 	ArgAliases: []string{"privateKey", "message"},
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("sign called", args)
+		logrus.Debug("sign called", args)
 		pkString, message := args[0], args[1]
 		privateKey, err := crypto.HexToECDSA(pkString)
 		if err != nil {
@@ -78,15 +44,15 @@ var signCmd = &cobra.Command{
 		publicKey := privateKey.Public()
 		publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 		addressSig := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
-		fmt.Printf("sign with address %s\n", addressSig)
+		logrus.Info("sign with address %s\n", addressSig)
 
 		input := message
-		signature, _, err := PersonalSign(input, privateKey)
+		signature, _, err := util.PersonalSign(input, privateKey)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		fmt.Println("signature", signature, "length", len(signature))
+		logrus.Info("signature", signature, "length", len(signature))
 	},
 }
 
