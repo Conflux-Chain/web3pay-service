@@ -24,7 +24,7 @@ var ecrecoverCmd = &cobra.Command{
 		if err != nil {
 			log.Fatal("recover fail", err)
 		}
-		logrus.Info("recovered address: %s\n", address)
+		logrus.Info("recovered address: ", address)
 	},
 }
 
@@ -44,7 +44,7 @@ var signCmd = &cobra.Command{
 		publicKey := privateKey.Public()
 		publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 		addressSig := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
-		logrus.Info("sign with address %s\n", addressSig)
+		logrus.Info("sign with address ", addressSig)
 
 		input := message
 		signature, _, err := util.PersonalSign(input, privateKey)
@@ -52,7 +52,7 @@ var signCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		logrus.Info("signature", signature, "length", len(signature))
+		logrus.Info("signature ", signature, "length ", len(signature))
 	},
 }
 
