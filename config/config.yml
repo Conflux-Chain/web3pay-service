@@ -1,10 +1,18 @@
-# Conflux RPC Configurations
-cfx:
-  ws: ws://test.confluxrpc.com/ws
-  http: http://test.confluxrpc.com
+# Conflux eSpace RPC Configurations
+eth:
+  ws: ws://evmtestnet.confluxrpc.com/ws
+  http: http://evmtestnet.confluxrpc.com
   # retry: 3
   # retryInterval: 1s
   # requestTimeout: 3s
+
+# Store Configurations
+store:
+  sqlite:
+    # Use in-memory sqlite as default.
+    # You can also specify path to a file (eg., `gorm.db`) for disk persistence.
+    # database: file::memory:?cache=shared
+
 # Metrics Configurations
 metrics:
   enabled: false
@@ -17,9 +25,11 @@ metrics:
   report:
     enabled: false
     interval: 10s
+
 # Logs Configurations
 log:
   level: debug
+
 # Alert Configurations
 alert:
   customTags: [web3pay, test]
