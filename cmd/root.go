@@ -3,6 +3,8 @@ package cmd
 import (
 	"os"
 
+	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +16,11 @@ var rootCmd = &cobra.Command{
 	Run:   start,
 }
 
-func start(cmd *cobra.Command, args []string) {}
+func start(cmd *cobra.Command, args []string) {
+	// prepare sqlite store
+	config := sqlite.MustNewConfigFromViper()
+	_ = config.MustOpenOrCreate(model.All...)
+}
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
