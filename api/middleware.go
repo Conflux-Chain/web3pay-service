@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"math"
 	"net/http"
 
 	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
 	"github.com/Conflux-Chain/web3pay-service/util"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,23 +44,51 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+type authKey struct {
+	Msg string // signed message
+	Sig string // signature
+}
+
+func parseAuthKey(r *http.Request, headerKey string) (*authKey, error) {
+	keyJson, err := base64.StdEncoding.DecodeString(r.Header.Get(headerKey))
+	if err != nil {
+		return nil, errors.WithMessage(err, "base64 decode error")
+	}
+
+	var key authKey
+	if err := json.Unmarshal(keyJson, &key); err != nil {
+		return nil, errors.WithMessage(err, "json decode error")
+	}
+
+	if len(key.Msg) == 0 {
+		return nil, errors.New("msg not provided")
+	}
+
+	if len(key.Sig) == 0 {
+		return nil, errors.New("sig not provided")
+	}
+
+	return &key, err
+}
+
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// extract signature from header
-		appContract, ownerSignature := r.Header.Get("App-Contract"), r.Header.Get("Owner-Signature")
-		if len(appContract) == 0 || len(ownerSignature) == 0 {
-			respJsonError(w, errAuth.withData("incomplete contract signature information"))
+		billingKey, err := parseAuthKey(r, "Billing-Key")
+		if err != nil {
+			err = errors.WithMessage(err, "billing key parse error")
+			respJsonError(w, errAuth.withData(err.Error()))
 			return
 		}
 
-		appNonce, customerSignature := r.Header.Get("App-Nonce"), r.Header.Get("Customer-Signature")
-		if len(appNonce) == 0 || len(customerSignature) == 0 {
-			respJsonError(w, errAuth.withData("incomplete customer signature information"))
+		customerKey, err := parseAuthKey(r, "Customer-Key")
+		if err != nil {
+			err = errors.WithMessage(err, "customer key parse error")
+			respJsonError(w, errAuth.withData(err.Error()))
 			return
 		}
 
-		// authenticate the APP contract owner
-		contractOwnerAddr, err := util.RecoverAddress(appContract, ownerSignature)
+		// authenticate contract owner
+		contractOwnerAddr, err := util.RecoverAddress(billingKey.Msg, billingKey.Sig)
 		if err != nil {
 			respJsonError(w, errAuth.withData(err.Error()))
 			return
@@ -69,12 +100,12 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 		logrus.WithFields(logrus.Fields{
 			"contractOwnerAddr": contractOwnerAddr,
-			"appContract":       appContract,
-			"ownerSignature":    ownerSignature,
-		}).Debug("Extract contract owner address from auth signature")
+			"msg":               billingKey.Msg,
+			"sig":               billingKey.Sig,
+		}).Debug("Extract contract owner address from auth key")
 
-		// authenticate the customer
-		customerAddr, err := util.RecoverAddress(appNonce, customerSignature)
+		// authenticate customer
+		customerAddr, err := util.RecoverAddress(customerKey.Msg, customerKey.Sig)
 		if err != nil {
 			respJsonError(w, errAuth.withData(err.Error()))
 			return
@@ -83,10 +114,10 @@ func AuthMiddleware(next http.Handler) http.Handler {
 		// TODO: cache customer signature for performance
 
 		logrus.WithFields(logrus.Fields{
-			"customerAddr":      customerAddr,
-			"appNonce":          appNonce,
-			"customerSignature": customerSignature,
-		}).Debug("Extract customer address from auth signature")
+			"customerAddr": customerAddr,
+			"msg":          customerKey.Msg,
+			"sig":          customerKey.Sig,
+		}).Debug("Extract customer address from auth key")
 
 		next.ServeHTTP(w, r)
 	})
