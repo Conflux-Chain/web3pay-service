@@ -39,3 +39,8 @@ alert:
     secret: ${test_secret}
     atMobiles: []
     isAtAll: false
+
+# API Configurations
+api:
+  # The endpoint for serving Restful or JSON-RPC
+  # endpoint: :8080
