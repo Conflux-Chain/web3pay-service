@@ -11,9 +11,11 @@ type controllerFactory struct {
 func newRouter() *mux.Router {
 	r := mux.NewRouter()
 
-	// middlewares
+	// TODO add metrics middleware
 	r.Use(mux.CORSMethodMiddleware(r))
+	r.Use(AuthMiddleware)
 	r.Use(LogTracingMiddleware)
+	r.Use(LoggingMiddleware)
 
 	factory := controllerFactory{
 		billing: NewBillingController(),

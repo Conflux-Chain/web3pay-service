@@ -2,9 +2,10 @@ package api
 
 var (
 	// general error
-	errNil            = &businessError{Code: 0, Message: "ok"}
-	errValidation     = &businessError{Code: 1, Message: "invalid parameter"}
-	errInternalServer = &businessError{Code: 2, Message: "internal server error"}
+	errNil            = &businessError{Code: 0, Message: "OK"}
+	errValidation     = &businessError{Code: 1, Message: "Invalid parameter"}
+	errInternalServer = &businessError{Code: 2, Message: "Internal server error"}
+	errAuth           = &businessError{Code: 3, Message: "Authentication failed"}
 )
 
 type businessError struct {
