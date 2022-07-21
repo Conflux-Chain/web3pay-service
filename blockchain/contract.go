@@ -2,8 +2,15 @@ package blockchain
 
 import (
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/openweb3/web3go"
 )
+
+type contractBindCallContext struct {
+	contractClient *web3go.ClientForContract
+	signer         bind.SignerFn
+}
 
 type contractObj struct {
 	addr  *common.Address
@@ -28,7 +35,8 @@ func newControllerContractObj(
 
 type appCoinContractObj struct {
 	*contractObj
-	stub *contract.APPCoin
+	stub      *contract.APPCoin
+	resources map[string]contract.AppConfigConfigEntry
 }
 
 func newAppCoinContractObj(
@@ -38,6 +46,7 @@ func newAppCoinContractObj(
 		contractObj: &contractObj{
 			addr: contractAddr, owner: owner,
 		},
-		stub: stub,
+		stub:      stub,
+		resources: make(map[string]contract.AppConfigConfigEntry),
 	}
 }
