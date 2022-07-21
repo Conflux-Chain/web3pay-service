@@ -1,27 +1,22 @@
 package api
 
 import (
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/gorilla/mux"
 )
 
-type controllerFactory struct {
-	billing *BillingController
-}
-
-func newRouter() *mux.Router {
+func newRouter(svcFactory *service.Factory) *mux.Router {
 	r := mux.NewRouter()
 
-	// TODO add metrics middleware
-	r.Use(mux.CORSMethodMiddleware(r))
-	r.Use(AuthMiddleware)
+	// TODO:
+	// 1. add metrics middleware
+	// 2. add CORS middleware?
+	r.Use(AuthMiddleware(r, svcFactory.Blockchain))
 	r.Use(LogTracingMiddleware)
 	r.Use(LoggingMiddleware)
 
-	factory := controllerFactory{
-		billing: NewBillingController(),
-	}
-
-	r.HandleFunc("/billing", Wrap(factory.billing.Charge, "web3pay/api/billing")).Methods("POST")
+	billingCtr := NewBillingController()
+	r.HandleFunc("/billing", Wrap(billingCtr.Charge, "web3pay/api/billing")).Methods("POST")
 
 	return r
 }
