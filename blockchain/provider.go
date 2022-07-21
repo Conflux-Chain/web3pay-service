@@ -66,7 +66,7 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		}
 
 		// fetch APP coin contract owner
-		appCoinOwner, err := appCoinCaller.Owner(nil)
+		appCoinOwner, err := appCoinCaller.AppOwner(nil)
 		if err != nil {
 			logrus.WithField("addr", addr.String()).
 				WithError(err).
