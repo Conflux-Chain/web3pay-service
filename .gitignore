@@ -20,3 +20,6 @@ gorm.db
 # Build binary
 bin
 web3pay
+
+# Env file
+.env
