@@ -4,8 +4,11 @@ import (
 	"os"
 
 	"github.com/Conflux-Chain/web3pay-service/api"
+	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/spf13/cobra"
 )
 
@@ -18,11 +21,20 @@ var rootCmd = &cobra.Command{
 }
 
 func start(cmd *cobra.Command, args []string) {
-	// prepare sqlite store
+	// sqlite store
 	config := sqlite.MustNewConfigFromViper()
-	_ = config.MustOpenOrCreate(model.All...)
+	sqliteStore := config.MustOpenOrCreate(model.All...)
 
-	api.MustServe()
+	// eth client
+	w3client := util.MustNewEthClientFromViper()
+
+	// blockchain data provider
+	chainDataProvider := blockchain.MustNewProviderFromViper(w3client)
+
+	// service factory
+	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainDataProvider)
+
+	api.MustServe(serviceFactory)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

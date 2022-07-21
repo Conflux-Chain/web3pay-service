@@ -6,6 +6,7 @@ import (
 	"time"
 
 	viperutil "github.com/Conflux-Chain/go-conflux-util/viper"
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
 )
@@ -20,7 +21,7 @@ type Config struct {
 
 // MustServe serves the API endpoints.
 // Be minded this function will block until application exit.
-func MustServe() {
+func MustServe(svcFactory *service.Factory) {
 	var config Config
 	viperutil.MustUnmarshalKey("api", &config)
 
@@ -29,7 +30,7 @@ func MustServe() {
 	stdSrv = &http.Server{
 		Addr:        config.Endpoint,
 		ReadTimeout: 1 * time.Minute,
-		Handler:     handlers.RecoveryHandler()(newRouter()),
+		Handler:     handlers.RecoveryHandler()(newRouter(svcFactory)),
 	}
 
 	if err := stdSrv.ListenAndServe(); err != http.ErrServerClosed {

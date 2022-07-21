@@ -1,6 +1,5 @@
 # Conflux eSpace RPC Configurations
 eth:
-  ws: ws://evmtestnet.confluxrpc.com/ws
   http: http://evmtestnet.confluxrpc.com
   # retry: 3
   # retryInterval: 1s
@@ -44,3 +43,10 @@ alert:
 api:
   # The endpoint for serving Restful or JSON-RPC
   # endpoint: :8080
+
+# Blockchain Configurations
+blockchain:
+  # Controller contract address from where to retrieve list of tracking APPCoin's
+  controllerContractAddr: 0xc88bb4c3d8f63effaf6519ab74158c22180f9a28
+  # Operator private key used to sign billing operation for blockchain submmission.
+  operatorPrivateKey: 0xdf57089febbacf7ba0bc227dafbffa9fc08a93fdc68e1e42411a14efcf23656e
