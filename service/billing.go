@@ -13,11 +13,6 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var (
-	errInsufficentBalance = errors.New("insufficient balance")
-	errAccountAddrFrozen  = errors.New("account address fronzen")
-)
-
 type ChargeRequest struct {
 	ResourceId   string
 	DryRun       bool
@@ -61,11 +56,11 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	}
 
 	if appCoinStatus.Frozen > 0 {
-		return nil, errAccountAddrFrozen
+		return nil, model.ErrAccountAddrFrozen
 	}
 
 	if resource.Weight > uint32(appCoinStatus.Balance) {
-		return nil, errInsufficentBalance
+		return nil, model.ErrInsufficentBalance
 	}
 
 	if req.DryRun { // for simulation only?

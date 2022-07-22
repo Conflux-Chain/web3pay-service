@@ -19,11 +19,6 @@ const (
 	coinAddrStatusCacheSize   = 1_00_000
 )
 
-var (
-	errNotAnValidAppCoinOwner     = errors.New("not a valid APP coin contract owner")
-	errAppCoinAddrBalanceNotFound = errors.New("address balance of APP coin not found")
-)
-
 type BlockchainService struct {
 	sigAddrCache        *lru.Cache // sha3(sig) => addr
 	coinAddrStatusCache *lru.Cache // sha3(coin, addr) => *model.AppCoinAddrStatus
@@ -64,13 +59,13 @@ func (svc *BlockchainService) DeductAppCoinBalance(appCoin, address common.Addre
 		addrStatus := val.(*model.AppCoinAddrStatus)
 
 		if addrStatus.Balance < amount {
-			return 0, errInsufficentBalance
+			return 0, model.ErrInsufficentBalance
 		}
 
 		addrStatus.Balance -= amount
 	}
 
-	return 0, errAppCoinAddrBalanceNotFound
+	return 0, model.ErrAppCoinAddrBalanceNotFound
 }
 
 func (svc *BlockchainService) GetAppCoinResourceWithId(
@@ -138,7 +133,7 @@ func (svc *BlockchainService) ValidateAppCoinContractOwner(contractAddr, owner c
 	}
 
 	if !reflect.DeepEqual(contractOwner, &owner) {
-		return errNotAnValidAppCoinOwner
+		return model.ErrNotAnValidAppCoinOwner
 	}
 
 	return nil

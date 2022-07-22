@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/sirupsen/logrus"
@@ -27,7 +28,7 @@ type chargeRequest struct {
 func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
 	var cr chargeRequest
 	if err := jsonUnmarshalRequestBody(hc.r, &cr); err != nil {
-		return nil, errValidation.withData(err.Error())
+		return nil, model.ErrValidation.WithData(err.Error())
 	}
 
 	ctx := hc.r.Context()
@@ -106,7 +107,7 @@ func (w *wrapper) wrap(rw http.ResponseWriter, r *http.Request) {
 }
 
 func respJsonOK(rw http.ResponseWriter, payload interface{}) {
-	if err := json.NewEncoder(rw).Encode(errNil.withData(payload)); err != nil {
+	if err := json.NewEncoder(rw).Encode(model.ErrNil.WithData(payload)); err != nil {
 		panic("json encoding error")
 	}
 }
@@ -115,12 +116,12 @@ func respJsonError(rw http.ResponseWriter, err error) {
 	var encodingErr error
 
 	switch e := err.(type) {
-	case *businessError: // business error
+	case *model.BusinessError: // business error
 		rw.WriteHeader(http.StatusOK)
 		encodingErr = json.NewEncoder(rw).Encode(e)
 	default: // internal server error
 		rw.WriteHeader(http.StatusInternalServerError)
-		encodingErr = json.NewEncoder(rw).Encode(errInternalServer.withData(err.Error()))
+		encodingErr = json.NewEncoder(rw).Encode(model.ErrInternalServer.WithData(err.Error()))
 	}
 
 	if encodingErr != nil {

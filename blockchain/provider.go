@@ -6,6 +6,7 @@ import (
 
 	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go"
 	"github.com/pkg/errors"
@@ -15,9 +16,6 @@ import (
 var (
 	listAppPageSize      = 50
 	listResourcePageSize = 50
-
-	errAppCoinNotFound         = errors.New("APP coin not found")
-	errAppCoinResourceNotFound = errors.New("APP coin resource not found")
 )
 
 // Provider provides blockchain data.
@@ -125,7 +123,7 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (uint64, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return 0, errAppCoinNotFound
+		return 0, model.ErrAppCoinNotFound
 	}
 
 	contractObj := atv.(*appCoinContractObj)
@@ -145,7 +143,7 @@ func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (
 func (p *Provider) GetAppCoinBalanceOfAddr(coin, address common.Address) (uint64, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return 0, errAppCoinNotFound
+		return 0, model.ErrAppCoinNotFound
 	}
 
 	contractObj := atv.(*appCoinContractObj)
@@ -166,7 +164,7 @@ func (p *Provider) GetAppCoinBalanceOfAddr(coin, address common.Address) (uint64
 func (p *Provider) GetAppCoinContractOwner(coin common.Address) (*common.Address, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return nil, errAppCoinNotFound
+		return nil, model.ErrAppCoinNotFound
 	}
 
 	contractObj := atv.(*appCoinContractObj)
@@ -177,7 +175,7 @@ func (p *Provider) GetAppCoinContractOwner(coin common.Address) (*common.Address
 func (p *Provider) GetAppCoinResource(coin common.Address, resourceId string) (*contract.AppConfigConfigEntry, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return nil, errAppCoinNotFound
+		return nil, model.ErrAppCoinNotFound
 	}
 
 	contractObj := atv.(*appCoinContractObj)
@@ -186,7 +184,7 @@ func (p *Provider) GetAppCoinResource(coin common.Address, resourceId string) (*
 		return v.(*contract.AppConfigConfigEntry), nil
 	}
 
-	return nil, errAppCoinResourceNotFound
+	return nil, model.ErrAppCoinResourceNotFound
 }
 
 // IterateControllerApps iterates all APP contracts created by controller contract.
@@ -224,7 +222,7 @@ func (p *Provider) IterateAppCoinResources(
 ) error {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return errAppCoinNotFound
+		return model.ErrAppCoinNotFound
 	}
 
 	contractObj := atv.(*appCoinContractObj)

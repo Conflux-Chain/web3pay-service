@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
@@ -91,39 +92,39 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService) mux.Midd
 			billingKey, err := parseAuthKey(r, "Billing-Key")
 			if err != nil {
 				err = errors.WithMessage(err, "billing key parsed error")
-				respJsonError(w, errAuth.withData(err.Error()))
+				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			customerKey, err := parseAuthKey(r, "Customer-Key")
 			if err != nil {
 				err = errors.WithMessage(err, "customer key parse error")
-				respJsonError(w, errAuth.withData(err.Error()))
+				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			// authenticate contract owner
 			if !common.IsHexAddress(billingKey.Msg) { // `msg` part must be a valid hex address
-				respJsonError(w, errAuth.withData("invalid contract address"))
+				respJsonError(w, model.ErrAuth.WithData("invalid contract address"))
 				return
 			}
 
 			ownerAddr, err := chainSvc.RecoverAddressBySignature(billingKey.Msg, billingKey.Sig)
 			if err != nil {
-				respJsonError(w, errAuth.withData(err.Error()))
+				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			contract, owner := common.HexToAddress(billingKey.Msg), common.HexToAddress(ownerAddr)
 			if err := chainSvc.ValidateAppCoinContractOwner(contract, owner); err != nil {
-				respJsonError(w, errAuth.withData(err.Error()))
+				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			// authenticate customer
 			customerAddr, err := chainSvc.RecoverAddressBySignature(customerKey.Msg, customerKey.Sig)
 			if err != nil {
-				respJsonError(w, errAuth.withData(err.Error()))
+				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
