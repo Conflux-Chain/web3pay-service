@@ -1,6 +1,8 @@
 package blockchain
 
 import (
+	"sync"
+
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -36,7 +38,7 @@ func newControllerContractObj(
 type appCoinContractObj struct {
 	*contractObj
 	stub      *contract.APPCoin
-	resources map[string]contract.AppConfigConfigEntry
+	resources sync.Map // resourceId => contract.AppConfigConfigEntry
 }
 
 func newAppCoinContractObj(
@@ -46,7 +48,6 @@ func newAppCoinContractObj(
 		contractObj: &contractObj{
 			addr: contractAddr, owner: owner,
 		},
-		stub:      stub,
-		resources: make(map[string]contract.AppConfigConfigEntry),
+		stub: stub,
 	}
 }

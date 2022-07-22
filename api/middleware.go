@@ -24,27 +24,15 @@ var (
 )
 
 func requestIdFromContext(ctx context.Context) uint64 {
-	if reqId, ok := ctx.Value(ctxKeyRequestId).(uint64); ok {
-		return reqId
-	}
-
-	return 0
+	return ctx.Value(ctxKeyRequestId).(uint64)
 }
 
-func contractAddrFromContext(ctx context.Context) *common.Address {
-	if addr, ok := ctx.Value(ctxKeyContractAddr).(common.Address); ok {
-		return &addr
-	}
-
-	return nil
+func contractAddrFromContext(ctx context.Context) common.Address {
+	return ctx.Value(ctxKeyContractAddr).(common.Address)
 }
 
-func customerAddrFromContext(ctx context.Context) *common.Address {
-	if addr, ok := ctx.Value(ctxKeyCustomerAddr).(common.Address); ok {
-		return &addr
-	}
-
-	return nil
+func customerAddrFromContext(ctx context.Context) common.Address {
+	return ctx.Value(ctxKeyCustomerAddr).(common.Address)
 }
 
 func LogTracingMiddleware(next http.Handler) http.Handler {

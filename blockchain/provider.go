@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"math/big"
+	"sync"
 
 	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/contract"
@@ -14,6 +15,9 @@ import (
 var (
 	listAppPageSize      = 50
 	listResourcePageSize = 50
+
+	errAppCoinNotFound         = errors.New("APP coin not found")
+	errAppCoinResourceNotFound = errors.New("APP coin resource not found")
 )
 
 // Provider provides blockchain data.
@@ -23,7 +27,7 @@ type Provider struct {
 
 	bindCallContext *contractBindCallContext
 	controller      *controllerContractObj
-	appCoins        map[common.Address]*appCoinContractObj
+	appCoins        sync.Map // common.Address => *appCoinContractObj
 }
 
 func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
@@ -45,7 +49,6 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		w3client:        w3c,
 		conf:            &conf,
 		bindCallContext: &contractBindCallContext{clientForContract, singerFn},
-		appCoins:        make(map[common.Address]*appCoinContractObj),
 		controller:      newControllerContractObj(&ctrlAddr, nil, ctrlCaller),
 	}
 
@@ -71,11 +74,11 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		}
 
 		coinContractObj := newAppCoinContractObj(&addr, &appCoinOwner, appCoinCaller)
-		p.appCoins[addr] = coinContractObj
+		p.appCoins.Store(addr, coinContractObj)
 
 		// iterate all resources under APP coin
-		if err := p.IterateAppCoinResources(addr, func(confEntry contract.AppConfigConfigEntry) error {
-			coinContractObj.resources[confEntry.ResourceId] = confEntry
+		if err := p.IterateAppCoinResources(addr, func(confEntry *contract.AppConfigConfigEntry) error {
+			coinContractObj.resources.Store(confEntry.ResourceId, confEntry)
 			return nil
 		}); err != nil {
 			logrus.WithField("appCoin", addr.String()).
@@ -92,28 +95,98 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 	}
 
 	if logrus.IsLevelEnabled(logrus.DebugLevel) {
-		for coin, contractObj := range p.appCoins {
+		p.appCoins.Range(func(coin, contractV any) bool {
+			contractObj := contractV.(*appCoinContractObj)
+			resourceMaps := make(map[string]contract.AppConfigConfigEntry)
+
+			contractObj.resources.Range(func(key, value any) bool {
+				conf := value.(*contract.AppConfigConfigEntry)
+				resourceMaps[key.(string)] = *conf
+				return true
+			})
+
 			logrus.WithFields(logrus.Fields{
-				"appCoin": coin, "resources": contractObj.resources,
+				"appCoin":   coin,
+				"resources": resourceMaps,
 			}).Debug("APP coin resources loaded")
-		}
+
+			return true
+		})
 
 		logrus.WithFields(logrus.Fields{
-			"config":             conf,
-			"controllerAddr":     ctrlAddr,
-			"controllerAppCoins": p.appCoins,
+			"config":         conf,
+			"controllerAddr": ctrlAddr,
 		}).Debug("Blockchain data provider initialized")
 	}
 
 	return p
 }
 
-// GetAppCoinContractOwner gets concerned APP coin contract owner.
-func (p *Provider) GetAppCoinContractOwner(contractAddr common.Address) *common.Address {
-	if contractObj, ok := p.appCoins[contractAddr]; ok {
-		return contractObj.owner
+func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (uint64, error) {
+	atv, ok := p.appCoins.Load(coin)
+	if !ok {
+		return 0, errAppCoinNotFound
 	}
-	return nil
+
+	contractObj := atv.(*appCoinContractObj)
+
+	fronzen, err := contractObj.stub.FrozenMap(nil, address)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"coin": coin, "address": address,
+		}).WithError(err).Info("Failed to get APP coin fronze status")
+
+		return 0, errors.WithMessage(err, "failed to get APP coin fronze status")
+	}
+
+	return fronzen.Uint64(), nil
+}
+
+func (p *Provider) GetAppCoinBalanceOfAddr(coin, address common.Address) (uint64, error) {
+	atv, ok := p.appCoins.Load(coin)
+	if !ok {
+		return 0, errAppCoinNotFound
+	}
+
+	contractObj := atv.(*appCoinContractObj)
+
+	balance, err := contractObj.stub.BalanceOf(nil, address)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"coin": coin, "address": address,
+		}).WithError(err).Info("Failed to get APP coin balance")
+
+		return 0, errors.WithMessage(err, "failed to get APP coin balance")
+	}
+
+	return balance.Uint64(), nil
+}
+
+// GetAppCoinContractOwner gets concerned APP coin contract owner.
+func (p *Provider) GetAppCoinContractOwner(coin common.Address) (*common.Address, error) {
+	atv, ok := p.appCoins.Load(coin)
+	if !ok {
+		return nil, errAppCoinNotFound
+	}
+
+	contractObj := atv.(*appCoinContractObj)
+	return contractObj.owner, nil
+}
+
+// GetAppCoinResources gets concerned APP coin resource with specified id.
+func (p *Provider) GetAppCoinResource(coin common.Address, resourceId string) (*contract.AppConfigConfigEntry, error) {
+	atv, ok := p.appCoins.Load(coin)
+	if !ok {
+		return nil, errAppCoinNotFound
+	}
+
+	contractObj := atv.(*appCoinContractObj)
+
+	if v, ok := contractObj.resources.Load(resourceId); ok {
+		return v.(*contract.AppConfigConfigEntry), nil
+	}
+
+	return nil, errAppCoinResourceNotFound
 }
 
 // IterateControllerApps iterates all APP contracts created by controller contract.
@@ -147,12 +220,14 @@ func (p *Provider) IterateControllerApps(iterator func(common.Address) error, cr
 
 // IterateAppCoinResources iterates all resource under specified APP coin.
 func (p *Provider) IterateAppCoinResources(
-	coin common.Address, iterator func(confEntry contract.AppConfigConfigEntry) error,
+	coin common.Address, iterator func(confEntry *contract.AppConfigConfigEntry) error,
 ) error {
-	contractObj, ok := p.appCoins[coin]
+	atv, ok := p.appCoins.Load(coin)
 	if !ok {
-		return errors.New("APP coin contract not found")
+		return errAppCoinNotFound
 	}
+
+	contractObj := atv.(*appCoinContractObj)
 
 	for offset := int64(0); ; {
 		configEntries, total, err := contractObj.stub.ListResources(
@@ -165,7 +240,7 @@ func (p *Provider) IterateAppCoinResources(
 		}
 
 		for i := range configEntries {
-			if err := iterator(configEntries[i]); err != nil {
+			if err := iterator(&configEntries[i]); err != nil {
 				logrus.WithField("coin", coin).WithError(err).Debug("Failed to iterate APP coin resource")
 				return errors.WithMessage(err, "failed to iterate resource")
 			}

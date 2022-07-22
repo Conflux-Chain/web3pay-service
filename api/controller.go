@@ -6,14 +6,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/sirupsen/logrus"
 )
 
-type BillingController struct{}
+type BillingController struct {
+	billingSvc *service.BillingService
+}
 
-func NewBillingController() *BillingController {
-	return &BillingController{}
+func NewBillingController(billingSvc *service.BillingService) *BillingController {
+	return &BillingController{billingSvc: billingSvc}
 }
 
 type chargeRequest struct {
@@ -23,26 +26,38 @@ type chargeRequest struct {
 
 func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
 	var cr chargeRequest
-	if err := unmarshalRequestBody(hc.r, &cr); err != nil {
+	if err := jsonUnmarshalRequestBody(hc.r, &cr); err != nil {
 		return nil, errValidation.withData(err.Error())
 	}
 
-	// TODO: also validate `resourceId`
-	if len(cr.ResourceId) == 0 {
-		return nil, errValidation.withData("resource ID invalid")
+	ctx := hc.r.Context()
+	reqId := requestIdFromContext(ctx)
+	contractAddr := contractAddrFromContext(ctx)
+	customerAddr := customerAddrFromContext(ctx)
+
+	chargeReq := &service.ChargeRequest{
+		ResourceId:   cr.ResourceId,
+		DryRun:       cr.DryRun,
+		ContractAddr: contractAddr,
+		CustomerAddr: customerAddr,
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"reqID":         requestIdFromContext(hc.r.Context()),
-		"chargeRequest": cr,
-	}).Debug("New billing charge request received.")
+	logger := logrus.WithFields(logrus.Fields{
+		"chargeRequest": chargeReq,
+		"requestId":     reqId,
+	})
 
-	// TODO: billing charge logic here
+	receipt, err := bc.billingSvc.Charge(ctx, chargeReq)
+	if err != nil {
+		logger.WithError(err).Debug("Billing charge failed")
+		return nil, err
+	}
 
-	return nil, nil
+	logger.WithField("receipt", receipt).Debug("Billing charge done")
+	return receipt, nil
 }
 
-func unmarshalRequestBody(r *http.Request, ptr interface{}) error {
+func jsonUnmarshalRequestBody(r *http.Request, ptr interface{}) error {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return err

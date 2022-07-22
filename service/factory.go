@@ -9,6 +9,7 @@ import (
 
 type Factory struct {
 	Blockchain *BlockchainService
+	Billing    *BillingService
 }
 
 func MustNewFactory(w3c *web3go.Client, store *sqlite.SqliteStore, provider *blockchain.Provider) *Factory {
@@ -19,5 +20,6 @@ func MustNewFactory(w3c *web3go.Client, store *sqlite.SqliteStore, provider *blo
 
 	return &Factory{
 		Blockchain: blockchainSvc,
+		Billing:    NewBillingService(store, blockchainSvc),
 	}
 }
