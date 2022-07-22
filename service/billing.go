@@ -1,6 +1,8 @@
 package service
 
 import (
+	"time"
+
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/Conflux-Chain/web3pay-service/util"
@@ -58,7 +60,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 		return nil, err
 	}
 
-	if appCoinStatus.Fronzen > 0 {
+	if appCoinStatus.Frozen > 0 {
 		return nil, errAccountAddrFrozen
 	}
 
@@ -77,17 +79,20 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	var newBalance uint64
 	if err := bs.store.Transaction(func(tx *gorm.DB) error {
 		statement := model.BillingStatement{
-			Contract: req.ContractAddr.String(),
-			Address:  req.CustomerAddr.String(),
-			Fee:      uint64(resource.Weight),
-			Calls:    1,
+			Contract:  req.ContractAddr.String(),
+			Address:   req.CustomerAddr.String(),
+			Fee:       uint64(resource.Weight),
+			Calls:     1,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		}
 
 		if err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "contract"}, {Name: "address"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"fee":   gorm.Expr("fee + ?", resource.Weight),
-				"calls": gorm.Expr("calls + 1"),
+				"fee":        gorm.Expr("fee + ?", resource.Weight),
+				"calls":      gorm.Expr("calls + 1"),
+				"updated_at": time.Now(),
 			}),
 		}).Create(&statement).Error; err != nil {
 			return errors.WithMessage(err, "failed to upsert billing statement")

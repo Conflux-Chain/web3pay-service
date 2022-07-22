@@ -82,23 +82,30 @@ func (svc *BlockchainService) GetAppCoinResourceWithId(
 func (svc *BlockchainService) GetAppCoinStatusOfAddr(appCoin, address common.Address) (*model.AppCoinAddrStatus, error) {
 	cacheKey := crypto.Keccak256Hash(appCoin[:], address[:])
 
+	logger := logrus.WithFields(logrus.Fields{
+		"appCoin": appCoin, "address": address, "cacheKey": cacheKey,
+	})
+
 	if val, ok := svc.coinAddrStatusCache.Get(cacheKey); ok {
-		return val.(*model.AppCoinAddrStatus), nil
+		status := val.(*model.AppCoinAddrStatus)
+		logger.WithField("status", status).Debug("App coin status for address hit in cache")
+		return status, nil
 	}
 
 	lockKey := util.MutexKey(cacheKey.String())
 	svc.kmutex.Lock(lockKey)
 	defer svc.kmutex.Unlock(lockKey)
 
-	// TODO: use batch?
 	balance, err := svc.provider.GetAppCoinBalanceOfAddr(appCoin, address)
-	if err == nil {
+	if err != nil {
+		logger.WithError(err).Info("Failed to get APP coin balance")
 		return nil, errors.WithMessage(err, "failed to get APP coin balance")
 	}
 
-	fronzen, err := svc.provider.GetAppCoinFronzenStatusOfAddr(appCoin, address)
-	if err == nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin fronzen status")
+	frozen, err := svc.provider.GetAppCoinFronzenStatusOfAddr(appCoin, address)
+	if err != nil {
+		logger.WithError(err).Info("Failed to get APP coin frozen status")
+		return nil, errors.WithMessage(err, "failed to get APP coin frozen status")
 	}
 
 	if val, ok := svc.coinAddrStatusCache.Get(cacheKey); ok { // double checking
@@ -106,8 +113,10 @@ func (svc *BlockchainService) GetAppCoinStatusOfAddr(appCoin, address common.Add
 	}
 
 	coinStatus := &model.AppCoinAddrStatus{
-		Balance: balance, Fronzen: fronzen,
+		Balance: balance, Frozen: frozen,
 	}
+
+	logger.WithField("appCoinStatus", coinStatus).Debug("Fetched APP coin status for address")
 
 	svc.coinAddrStatusCache.Add(cacheKey, coinStatus)
 	return coinStatus, err
