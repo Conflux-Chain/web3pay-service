@@ -1,21 +1,31 @@
 package blockchain
 
 import (
+	"context"
 	"math/big"
 	"sync"
+	"time"
 
 	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	listAppPageSize      = 50
-	listResourcePageSize = 50
+const (
+	// default list page size
+	defaultListAppPageSize      = 50
+	defaultListResourcePageSize = 50
+
+	// default contract call timeout
+	defaultContractCallTimeout = 3 * time.Second
+
+	// number of diff blocks before latest as the base block
+	baseDiffBlockAheadOfLatest = 40
 )
 
 // Provider provides blockchain data.
@@ -35,6 +45,11 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 	clientForContract, singerFn := w3c.ToClientForContract()
 	ctrlAddr := common.HexToAddress(conf.ControllerContractAddr)
 
+	latestBlockNo, err := w3c.Eth.BlockNumber()
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to get latest block number")
+	}
+
 	// init controller contract stub
 	ctrlCaller, err := contract.NewController(ctrlAddr, clientForContract)
 	if err != nil {
@@ -44,14 +59,26 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 	}
 
 	p := &Provider{
-		w3client:        w3c,
-		conf:            &conf,
-		bindCallContext: &contractBindCallContext{clientForContract, singerFn},
-		controller:      newControllerContractObj(&ctrlAddr, nil, ctrlCaller),
+		w3client: w3c,
+		conf:     &conf,
+		bindCallContext: &contractBindCallContext{
+			baseBlockNumber: latestBlockNo.Int64() - baseDiffBlockAheadOfLatest,
+			contractClient:  clientForContract,
+			signer:          singerFn,
+		},
+		controller: newControllerContractObj(&ctrlAddr, nil, ctrlCaller),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultContractCallTimeout)
+	defer cancel()
+
+	baseCallOpt := &bind.CallOpts{
+		BlockNumber: big.NewInt(p.bindCallContext.baseBlockNumber),
+		Context:     ctx,
 	}
 
 	// iterate all controller APPs to init APP contract instances
-	if err := p.IterateControllerApps(func(addr common.Address) error {
+	if err := p.IterateControllerApps(baseCallOpt, func(addr common.Address) error {
 		appCoinCaller, err := contract.NewAPPCoin(addr, clientForContract)
 		if err != nil {
 			logrus.WithField("addr", addr.String()).
@@ -62,7 +89,7 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		}
 
 		// fetch APP coin contract owner
-		appCoinOwner, err := appCoinCaller.AppOwner(nil)
+		appCoinOwner, err := appCoinCaller.AppOwner(baseCallOpt)
 		if err != nil {
 			logrus.WithField("addr", addr.String()).
 				WithError(err).
@@ -75,7 +102,7 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		p.appCoins.Store(addr, coinContractObj)
 
 		// iterate all resources under APP coin
-		if err := p.IterateAppCoinResources(addr, func(confEntry *contract.AppConfigConfigEntry) error {
+		if err := p.IterateAppCoinResources(baseCallOpt, addr, func(confEntry *contract.AppConfigConfigEntry) error {
 			coinContractObj.resources.Store(confEntry.ResourceId, confEntry)
 			return nil
 		}); err != nil {
@@ -112,15 +139,20 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		})
 
 		logrus.WithFields(logrus.Fields{
-			"config":         conf,
-			"controllerAddr": ctrlAddr,
+			"controllerAddr":  ctrlAddr,
+			"baseBlockNumber": p.bindCallContext.baseBlockNumber,
 		}).Debug("Blockchain data provider initialized")
 	}
 
 	return p
 }
 
-func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (uint64, error) {
+func (p *Provider) GetBaseBlockNumber() int64 {
+	return p.bindCallContext.baseBlockNumber
+}
+
+func (p *Provider) GetAppCoinFronzenStatusOfAddr(
+	callOpts *bind.CallOpts, coin, address common.Address) (uint64, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
 		return 0, model.ErrAppCoinNotFound
@@ -128,7 +160,7 @@ func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (
 
 	contractObj := atv.(*appCoinContractObj)
 
-	fronzen, err := contractObj.stub.FrozenMap(nil, address)
+	fronzen, err := contractObj.stub.FrozenMap(callOpts, address)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"coin": coin, "address": address,
@@ -140,7 +172,8 @@ func (p *Provider) GetAppCoinFronzenStatusOfAddr(coin, address common.Address) (
 	return fronzen.Uint64(), nil
 }
 
-func (p *Provider) GetAppCoinBalanceOfAddr(coin, address common.Address) (uint64, error) {
+func (p *Provider) GetAppCoinBalanceOfAddr(
+	callOpts *bind.CallOpts, coin, address common.Address) (uint64, error) {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
 		return 0, model.ErrAppCoinNotFound
@@ -148,7 +181,7 @@ func (p *Provider) GetAppCoinBalanceOfAddr(coin, address common.Address) (uint64
 
 	contractObj := atv.(*appCoinContractObj)
 
-	balance, err := contractObj.stub.BalanceOf(nil, address)
+	balance, err := contractObj.stub.BalanceOf(callOpts, address)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"coin": coin, "address": address,
@@ -189,10 +222,11 @@ func (p *Provider) GetAppCoinResource(coin common.Address, resourceId string) (*
 
 // IterateControllerApps iterates all APP contracts created by controller contract.
 // TODO: support config to filter by specific contract creator
-func (p *Provider) IterateControllerApps(iterator func(common.Address) error, creator ...common.Address) error {
+func (p *Provider) IterateControllerApps(
+	callOpts *bind.CallOpts, iterator func(common.Address) error, creator ...common.Address) error {
 	for offset := int64(0); ; {
 		appContractAddrs, total, err := p.controller.stub.ListApp(
-			nil, big.NewInt(offset), big.NewInt(int64(listAppPageSize)),
+			callOpts, big.NewInt(offset), big.NewInt(int64(defaultListAppPageSize)),
 		)
 
 		if err != nil {
@@ -218,7 +252,7 @@ func (p *Provider) IterateControllerApps(iterator func(common.Address) error, cr
 
 // IterateAppCoinResources iterates all resource under specified APP coin.
 func (p *Provider) IterateAppCoinResources(
-	coin common.Address, iterator func(confEntry *contract.AppConfigConfigEntry) error,
+	callOpts *bind.CallOpts, coin common.Address, iterator func(confEntry *contract.AppConfigConfigEntry) error,
 ) error {
 	atv, ok := p.appCoins.Load(coin)
 	if !ok {
@@ -229,7 +263,7 @@ func (p *Provider) IterateAppCoinResources(
 
 	for offset := int64(0); ; {
 		configEntries, total, err := contractObj.stub.ListResources(
-			nil, big.NewInt(offset), big.NewInt(int64(listResourcePageSize)),
+			callOpts, big.NewInt(offset), big.NewInt(int64(defaultListResourcePageSize)),
 		)
 
 		if err != nil {

@@ -10,8 +10,9 @@ import (
 )
 
 type contractBindCallContext struct {
-	contractClient *web3go.ClientForContract
-	signer         bind.SignerFn
+	baseBlockNumber int64
+	contractClient  *web3go.ClientForContract
+	signer          bind.SignerFn
 }
 
 type contractObj struct {

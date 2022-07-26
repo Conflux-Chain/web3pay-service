@@ -34,6 +34,8 @@ func start(cmd *cobra.Command, args []string) {
 	// service factory
 	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainDataProvider)
 
+	_ = chainDataProvider.GetBaseBlockNumber()
+
 	api.MustServe(serviceFactory)
 }
 
