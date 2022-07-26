@@ -16,14 +16,12 @@ import (
 
 const (
 	signatureAddressCacheSize = 1_00_000
-	coinAddrStatusCacheSize   = 1_00_000
 )
 
 type BlockchainService struct {
-	sigAddrCache        *lru.Cache // sha3(sig) => addr
-	coinAddrStatusCache *lru.Cache // sha3(coin, addr) => *model.AppCoinAddrStatus
-	provider            *blockchain.Provider
-	kmutex              *util.KMutex
+	sigAddrCache *lru.Cache // sha3(sig) => addr
+	provider     *blockchain.Provider
+	kmutex       *util.KMutex
 }
 
 func NewBlockchainService(provider *blockchain.Provider) (*BlockchainService, error) {
@@ -38,83 +36,16 @@ func NewBlockchainService(provider *blockchain.Provider) (*BlockchainService, er
 	}
 	bs.sigAddrCache = lruCache
 
-	lruCache, err = lru.New(coinAddrStatusCacheSize)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to init coin addr status cache")
-	}
-	bs.coinAddrStatusCache = lruCache
-
 	return bs, nil
-}
-
-// DeductAppCoinBalance deducts APP coin balance of specific address.
-func (svc *BlockchainService) DeductAppCoinBalance(appCoin, address common.Address, amount uint64) (uint64, error) {
-	cacheKey := crypto.Keccak256Hash(appCoin[:], address[:])
-
-	lockKey := util.MutexKey(cacheKey.String())
-	svc.kmutex.Lock(lockKey)
-	defer svc.kmutex.Unlock(lockKey)
-
-	if val, ok := svc.coinAddrStatusCache.Get(cacheKey); ok {
-		addrStatus := val.(*model.AppCoinAddrStatus)
-
-		if addrStatus.Balance < amount {
-			return 0, model.ErrInsufficentBalance
-		}
-
-		addrStatus.Balance -= amount
-	}
-
-	return 0, model.ErrAppCoinAddrBalanceNotFound
 }
 
 func (svc *BlockchainService) GetAppCoinResourceWithId(
 	appCoin common.Address, resourceId string) (*contract.AppConfigConfigEntry, error) {
+	if len(resourceId) == 0 { // if resourceId is empty, use default resource
+		resourceId = "default"
+	}
+
 	return svc.provider.GetAppCoinResource(appCoin, resourceId)
-}
-
-// GetAppCoinBalanceOfAddress gets APP coin status (balance, frozen status etc.,) of specific address.
-func (svc *BlockchainService) GetAppCoinStatusOfAddr(appCoin, address common.Address) (*model.AppCoinAddrStatus, error) {
-	cacheKey := crypto.Keccak256Hash(appCoin[:], address[:])
-
-	logger := logrus.WithFields(logrus.Fields{
-		"appCoin": appCoin, "address": address, "cacheKey": cacheKey,
-	})
-
-	if val, ok := svc.coinAddrStatusCache.Get(cacheKey); ok {
-		status := val.(*model.AppCoinAddrStatus)
-		logger.WithField("status", status).Debug("App coin status for address hit in cache")
-		return status, nil
-	}
-
-	lockKey := util.MutexKey(cacheKey.String())
-	svc.kmutex.Lock(lockKey)
-	defer svc.kmutex.Unlock(lockKey)
-
-	balance, err := svc.provider.GetAppCoinBalanceOfAddr(appCoin, address)
-	if err != nil {
-		logger.WithError(err).Info("Failed to get APP coin balance")
-		return nil, errors.WithMessage(err, "failed to get APP coin balance")
-	}
-
-	frozen, err := svc.provider.GetAppCoinFronzenStatusOfAddr(appCoin, address)
-	if err != nil {
-		logger.WithError(err).Info("Failed to get APP coin frozen status")
-		return nil, errors.WithMessage(err, "failed to get APP coin frozen status")
-	}
-
-	if val, ok := svc.coinAddrStatusCache.Get(cacheKey); ok { // double checking
-		return val.(*model.AppCoinAddrStatus), nil
-	}
-
-	coinStatus := &model.AppCoinAddrStatus{
-		Balance: balance, Frozen: frozen,
-	}
-
-	logger.WithField("appCoinStatus", coinStatus).Debug("Fetched APP coin status for address")
-
-	svc.coinAddrStatusCache.Add(cacheKey, coinStatus)
-	return coinStatus, err
 }
 
 // ValidateAppCoinContractOwner validates if the specific blockchain address is the owner for

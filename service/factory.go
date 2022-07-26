@@ -10,6 +10,7 @@ import (
 type Factory struct {
 	Blockchain *BlockchainService
 	Billing    *BillingService
+	Account    *AccountService
 }
 
 func MustNewFactory(w3c *web3go.Client, store *sqlite.SqliteStore, provider *blockchain.Provider) *Factory {
@@ -18,8 +19,14 @@ func MustNewFactory(w3c *web3go.Client, store *sqlite.SqliteStore, provider *blo
 		logrus.WithError(err).Fatal("Failed to create blockchain service")
 	}
 
+	accountSvc, err := NewAccountService(provider)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to create account service")
+	}
+
 	return &Factory{
 		Blockchain: blockchainSvc,
-		Billing:    NewBillingService(store, blockchainSvc),
+		Account:    accountSvc,
+		Billing:    NewBillingService(store, accountSvc, blockchainSvc),
 	}
 }

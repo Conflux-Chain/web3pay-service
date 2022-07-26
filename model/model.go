@@ -4,11 +4,6 @@ import (
 	"time"
 )
 
-type AppCoinAddrStatus struct {
-	Frozen  uint64
-	Balance uint64
-}
-
 // BillingStatement gross billing statements
 type BillingStatement struct {
 	ID       uint64
