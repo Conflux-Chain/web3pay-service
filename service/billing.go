@@ -86,6 +86,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 		"statement": statement, "resource": resource, "status": appCoinStatus,
 	})
 
+	// TODO: need some benchmarking here in case of poor performance.
 	if err := bs.store.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "contract"}, {Name: "address"}},

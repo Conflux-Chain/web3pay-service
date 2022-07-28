@@ -28,14 +28,19 @@ func start(cmd *cobra.Command, args []string) {
 	// eth client
 	w3client := util.MustNewEthClientFromViper()
 
-	// blockchain data provider
-	chainDataProvider := blockchain.MustNewProviderFromViper(w3client)
+	// blockchain ops provider
+	chainOpsProvider := blockchain.MustNewProviderFromViper(w3client)
 
 	// service factory
-	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainDataProvider)
+	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainOpsProvider)
 
-	_ = chainDataProvider.GetBaseBlockNumber()
+	// monitor
+	chainMonitor := blockchain.MustNewMonitor(chainOpsProvider)
 
+	// start monitor server
+	go chainMonitor.Sync()
+
+	// start RPC server
 	api.MustServe(serviceFactory)
 }
 

@@ -84,13 +84,13 @@ func (svc *AccountService) GetStatus(appCoin, address common.Address) (*AccountS
 	svc.kmutex.Lock(lockKey)
 	defer svc.kmutex.Unlock(lockKey)
 
-	balance, err := svc.provider.GetAppCoinBalanceOfAddr(nil, appCoin, address)
+	balance, err := svc.provider.GetAppCoinBalance(nil, appCoin, address)
 	if err != nil {
 		logger.WithError(err).Info("Failed to get APP coin balance")
 		return nil, errors.WithMessage(err, "failed to get APP coin balance")
 	}
 
-	frozen, err := svc.provider.GetAppCoinFronzenStatusOfAddr(nil, appCoin, address)
+	frozen, err := svc.provider.GetAppCoinFrozenStatus(nil, appCoin, address)
 	if err != nil {
 		logger.WithError(err).Info("Failed to get APP coin frozen status")
 		return nil, errors.WithMessage(err, "failed to get APP coin frozen status")

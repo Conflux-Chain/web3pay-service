@@ -116,7 +116,7 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService) mux.Midd
 			}
 
 			contract, owner := common.HexToAddress(billingKey.Msg), common.HexToAddress(ownerAddr)
-			if err := chainSvc.ValidateAppCoinContractOwner(contract, owner); err != nil {
+			if err := chainSvc.ValidateAppCoinOwner(contract, owner); err != nil {
 				respJsonError(w, model.ErrAuth.WithData(err.Error()))
 				return
 			}

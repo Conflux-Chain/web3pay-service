@@ -1,12 +1,13 @@
 package blockchain
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/openweb3/web3go"
 	"github.com/openweb3/web3go/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -14,53 +15,75 @@ import (
 
 const (
 	blockWinCapacity = 100
+
+	syncIntervalNormal  = time.Second * 1
+	syncIntervalCatchUp = time.Millisecond * 100
 )
 
-type EventSourcer interface {
-	GetApiCoinControllerContract() controllerContractObj
-	GetAppCoinContractList() []*appCoinContractObj
+type MonitorConfig struct {
+	ControllerAddress   common.Address   // controller contract
+	AppCoinAddresses    []common.Address // APP coin contract list
+	SyncFromBlockNumber int64            // the block number to start sync from
+	SyncIntervalNormal  time.Duration    // interval to sync data in normal status
+	SyncIntervalCatchUp time.Duration    // interval to sync data in catching up mode
+}
+
+func NewMonitorConfig(
+	syncStartBlock int64, controllerAddr common.Address, appCoinAddrs []common.Address) *MonitorConfig {
+	return &MonitorConfig{
+		ControllerAddress:   controllerAddr,
+		AppCoinAddresses:    appCoinAddrs,
+		SyncFromBlockNumber: syncStartBlock,
+		SyncIntervalNormal:  syncIntervalNormal,
+		SyncIntervalCatchUp: syncIntervalCatchUp,
+	}
 }
 
 // Monitor sync blockchain event logs to monitor contract events.
 type Monitor struct {
-	sourcer  EventSourcer   // event sourcer
-	w3client *web3go.Client // eth client
-
-	blockWindow         *blockHashWindow // window to cache sequent block hashes
-	syncFromBlockNumber int64            // the block number to sync from
-	syncIntervalNormal  time.Duration    // interval to sync data in normal status
-	syncIntervalCatchUp time.Duration    // interval to sync data in catching up mode
+	*MonitorConfig                  // monitor configurations
+	provider       *Provider        // blockchain ops provider
+	blockWindow    *blockHashWindow // window to cache sequent block hashes
 }
 
-func NewMonitor(sourcer EventSourcer, w3c *web3go.Client) *Monitor {
+func MustNewMonitor(provider *Provider) *Monitor {
+	refBlockNumber := provider.ReferenceBlockNumber()
+	baseCallOpt := &bind.CallOpts{
+		BlockNumber: big.NewInt(refBlockNumber),
+	}
+
+	appCoinAddrs, err := provider.ListControllerAppCoins(baseCallOpt)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to get APP coin list to init monitor")
+	}
+
+	config := NewMonitorConfig(refBlockNumber+1, provider.ControllerAddress(), appCoinAddrs)
+	logrus.WithField("monitorConfig", config).Debug("Monitor config loaded")
+
 	return &Monitor{
-		sourcer:             sourcer,
-		w3client:            w3c,
-		blockWindow:         newBlockHashWindow(blockWinCapacity),
-		syncIntervalNormal:  time.Second,
-		syncIntervalCatchUp: time.Millisecond * 50,
+		MonitorConfig: config,
+		provider:      provider,
+		blockWindow:   newBlockHashWindow(blockWinCapacity),
 	}
 }
 
-func (m *Monitor) Sync(fromBlock int64) {
-	logrus.WithField("fromBlock", fromBlock).
+func (m *Monitor) Sync() {
+	logrus.WithField("syncFromBlock", m.SyncFromBlockNumber).
 		Debug("Monitor starting to sync blockchain data")
 
-	m.syncFromBlockNumber = fromBlock
-
-	ticker := time.NewTicker(m.syncIntervalCatchUp)
+	ticker := time.NewTicker(m.SyncIntervalCatchUp)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		complete, err := m.syncOnce()
 		if err != nil || complete {
-			ticker.Reset(m.syncIntervalNormal)
+			ticker.Reset(m.SyncIntervalNormal)
 		} else {
-			ticker.Reset(m.syncIntervalCatchUp)
+			ticker.Reset(m.SyncIntervalCatchUp)
 		}
 
 		if err != nil {
-			logrus.WithField("syncBlock", m.syncFromBlockNumber).
+			logrus.WithField("syncBlock", m.SyncFromBlockNumber).
 				WithError(err).
 				Error("Monitor failed to sync blockchain data")
 		}
@@ -68,12 +91,12 @@ func (m *Monitor) Sync(fromBlock int64) {
 }
 
 func (m *Monitor) syncOnce() (bool, error) {
-	latestBlockNumber, err := m.w3client.Eth.BlockNumber()
+	latestBlockNumber, err := m.provider.BlockNumber()
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to query latest block")
 	}
 
-	syncBlockNum := (types.BlockNumber)(m.syncFromBlockNumber)
+	syncBlockNum := (types.BlockNumber)(m.SyncFromBlockNumber)
 	latestBlockNum := latestBlockNumber.Int64()
 
 	logger := logrus.WithFields(logrus.Fields{
@@ -81,12 +104,12 @@ func (m *Monitor) syncOnce() (bool, error) {
 		"syncBlockNo":       syncBlockNum,
 	})
 
-	if m.syncFromBlockNumber > latestBlockNum { // already catched up
+	if m.SyncFromBlockNumber > latestBlockNum { // already catched up
 		logger.Debug("Monitor skipped sync due to already catched up")
 		return true, nil
 	}
 
-	block, err := m.w3client.Eth.BlockByNumber(syncBlockNum, false)
+	block, err := m.provider.BlockByNumber(syncBlockNum, false)
 	if err != nil {
 		logger.WithError(err).Info("Monitor failed to get block by number")
 		return false, errors.WithMessage(err, "failed to get block by number")
@@ -96,41 +119,26 @@ func (m *Monitor) syncOnce() (bool, error) {
 	prevBlockHash, exist := m.blockWindow.getBlockHash(prevBlockNum)
 
 	if exist && block.ParentHash != prevBlockHash { // parent hash not matched
-		if err := m.reorgRevert(prevBlockNum); err != nil {
-			logger.WithFields(logrus.Fields{
-				"prevBlockHash":   prevBlockHash,
-				"parentBlockHash": block.ParentHash,
-			}).WithError(err).Info("Monitor failed to reorg revert due to parent hash mismatch")
-
-			return false, errors.WithMessage(err, "failed to reorg revert")
-		}
+		err := m.reorgRevert(prevBlockNum)
 
 		logger.WithFields(logrus.Fields{
-			"prevBlockHash": prevBlockHash,
-			"prevBlockNum":  prevBlockNum,
-		}).Info("Monitor reorg reverted prev block due to parent hash mismatch")
-		return false, nil
+			"prevBlockHash":   prevBlockHash,
+			"parentBlockHash": block.ParentHash,
+		}).WithError(err).Info("Monitor reorg revert due to parent hash mismatch")
+
+		return false, errors.WithMessage(err, "failed to reorg revert")
 	}
 
-	// TODO: maybe we can use a sync filter for this?
-	ctrlContract := m.sourcer.GetApiCoinControllerContract()
-	coinContractList := m.sourcer.GetAppCoinContractList()
-
-	filterAddrs := []common.Address{*ctrlContract.addr}
-	filterAddrsMap := make(map[common.Address]bool)
-	for i := range coinContractList {
-		filterAddrs = append(filterAddrs, *coinContractList[i].addr)
-		filterAddrsMap[*coinContractList[i].addr] = true
-	}
+	// build log filters
+	filterAddrs := []common.Address{m.ControllerAddress}
+	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
 
 	// TODO: filter topics too?
 	logFilter := types.FilterQuery{
-		FromBlock: &syncBlockNum,
-		ToBlock:   &syncBlockNum,
-		Addresses: filterAddrs,
+		FromBlock: &syncBlockNum, ToBlock: &syncBlockNum, Addresses: filterAddrs,
 	}
 
-	logs, err := m.w3client.Eth.Logs(logFilter)
+	logs, err := m.provider.Logs(logFilter)
 	if err != nil {
 		logger.WithField("logFilter", logFilter).
 			WithError(err).
@@ -138,91 +146,89 @@ func (m *Monitor) syncOnce() (bool, error) {
 		return false, errors.WithMessage(err, "failed to get event logs")
 	}
 
+	logger.WithField("numLogs", len(logs)).Debug("Monitor fetched block event logs")
+
 	for i := range logs {
 		if logs[i].BlockHash != block.Hash {
 			// block hash not matched, chain reorg during fetch? have a retry
 			return false, nil
 		}
 
+		// handle controller or APP coin contract events
 		eventCategory, consumed, err := "", false, (error)(nil)
-		if logs[i].Address == *ctrlContract.addr {
+
+		if logs[i].Address == m.ControllerAddress {
 			eventCategory = "controller"
 			consumed, err = m.handleControllerEvent(&logs[i])
-		} else if filterAddrsMap[logs[i].Address] {
+		} else {
 			eventCategory = "appCoin"
 			consumed, err = m.handleAppCoinEvent(&logs[i])
-		} else { // not concerned
-			continue
 		}
 
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"log":           logs[i],
 				"eventCategory": eventCategory,
-			}).WithError(err).Info("Monitor failed to handle log event")
+			}).WithError(err).Info("Monitor failed to handle event log")
 
-			return false, errors.WithMessage(err, "failed to handle log event")
+			return false, errors.WithMessage(err, "failed to handle event log")
 		}
 
 		logger.WithFields(logrus.Fields{
-			"log":           logs[i],
+			"logIndex":      i,
 			"eventCategory": eventCategory,
 			"consumed":      consumed,
-		}).Debug("Monitor handled controller event")
+		}).Debug("Monitor handled event log")
 	}
 
-	if err := m.blockWindow.push(m.syncFromBlockNumber, block.Hash, block.ParentHash); err != nil {
-		logger.WithField("blockNumber", syncBlockNum).
-			WithError(err).
-			Info("Monitor failed to push block into cache window")
+	if err := m.blockWindow.push(m.SyncFromBlockNumber, block.Hash, block.ParentHash); err != nil {
+		logger.WithError(err).Info("Monitor failed to push block into cache window")
 		m.blockWindow.reset()
 	}
 
-	m.syncFromBlockNumber++
-	return false, nil
+	m.SyncFromBlockNumber++
+
+	return int64(syncBlockNum) == latestBlockNum, nil
 }
 
-func (m *Monitor) handleAppCoinEvent(log *types.Log) (handled bool, err error) {
+func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to get APP coin contract ABI")
 	}
 
-	if len(log.Topics) == 0 {
-		return false, nil
-	}
-
 	var event string
 
 	switch log.Topics[0] {
-	case appCoinAbi.Events[contract.EventAppCoinMinted].ID: // minted
+	case appCoinAbi.Events[contract.EventAppCoinMinted].ID:
+		// minted
 		event = contract.EventAppCoinMinted
 		err = m.handleAppCoinMinted(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID: // frozen
+	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID:
+		// frozen
 		event = contract.EventAppCoinFrozen
 		err = m.handleAppCoinFrozen(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCointWithdraw].ID: // withdraw
+	case appCoinAbi.Events[contract.EventAppCointWithdraw].ID:
+		// withdraw
 		event = contract.EventAppCointWithdraw
 		err = m.handleAppCoinWithdraw(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID: // resource changed
+	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID:
+		// resource changed
 		event = contract.EventAppCoinResourceChanged
 		err = m.handleAppCoinResourceChanged(appCoinAbi, log)
-	default:
+	default: // not concerned
 		return false, nil
 	}
 
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"log":   log,
-			"event": event,
+			"log": log, "event": event,
 		}).WithError(err).Info("Monitor failed to handle APP coin event")
+
 		return false, err
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"log":   log,
-		"event": event,
-	}).Debug("Monitor handled APP coin event")
+	logrus.WithField("event", event).Debug("Monitor handled APP coin event")
 	return true, nil
 }
 
@@ -277,8 +283,8 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 	}
 
 	// `APP_CREATED` event concerned only
-	topic0 := controllerAbi.Events[contract.EventControllerAppCreated].ID
-	if len(log.Topics) == 0 || log.Topics[0] != topic0 {
+	appCreatedEventId := controllerAbi.Events[contract.EventControllerAppCreated].ID
+	if log.Topics[0] != appCreatedEventId {
 		return false, nil
 	}
 
@@ -296,14 +302,11 @@ func (m *Monitor) reorgRevert(revertToBlock int64) error {
 	// remove block hash of reverted block from cache window
 	m.blockWindow.popn(revertToBlock)
 
-	// update syncer start block
-	m.syncFromBlockNumber = revertToBlock
+	// reset syncer start block
+	m.SyncFromBlockNumber = revertToBlock
 
 	// TODO: notify observer for reorg revert
-	logrus.WithFields(logrus.Fields{
-		"revertToBlock":       revertToBlock,
-		"syncFromBlockNumber": m.syncFromBlockNumber,
-	}).Info("Monitor reorg reverted")
 
+	logrus.WithField("revertToBlock", revertToBlock).Info("Monitor reorg reverted")
 	return nil
 }
