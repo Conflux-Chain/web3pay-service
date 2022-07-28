@@ -18,6 +18,9 @@ const (
 
 	syncIntervalNormal  = time.Second * 1
 	syncIntervalCatchUp = time.Millisecond * 100
+
+	// Skip some blocks near head of the latest block to reduce the possibility of chain reorg.
+	skipBlocksNearHeadOfLatest = 40
 )
 
 type MonitorConfig struct {
@@ -91,20 +94,21 @@ func (m *Monitor) Sync() {
 }
 
 func (m *Monitor) syncOnce() (bool, error) {
-	latestBlockNumber, err := m.provider.BlockNumber()
+	latestBlockBigInt, err := m.provider.BlockNumber()
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to query latest block")
 	}
 
 	syncBlockNum := (types.BlockNumber)(m.SyncFromBlockNumber)
-	latestBlockNum := latestBlockNumber.Int64()
+	ceilBlockNumber := latestBlockBigInt.Int64() - skipBlocksNearHeadOfLatest
 
 	logger := logrus.WithFields(logrus.Fields{
-		"latestBlockNumber": latestBlockNum,
+		"latestBlockNumber": latestBlockBigInt.Int64(),
+		"ceilBlockNumber":   ceilBlockNumber,
 		"syncBlockNo":       syncBlockNum,
 	})
 
-	if m.SyncFromBlockNumber > latestBlockNum { // already catched up
+	if m.SyncFromBlockNumber > ceilBlockNumber { // already catched up to ceil
 		logger.Debug("Monitor skipped sync due to already catched up")
 		return true, nil
 	}
@@ -188,7 +192,7 @@ func (m *Monitor) syncOnce() (bool, error) {
 
 	m.SyncFromBlockNumber++
 
-	return int64(syncBlockNum) == latestBlockNum, nil
+	return int64(syncBlockNum) == ceilBlockNumber, nil
 }
 
 func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {

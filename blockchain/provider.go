@@ -18,10 +18,6 @@ const (
 	// default list page size
 	defaultListAppPageSize      = 50
 	defaultListResourcePageSize = 50
-
-	// skip some blocks near head of the latest block to reduce
-	// the possibility of chain reorg for chain operations.
-	skipBlocksNearHeadOfLatest = 100
 )
 
 type contractBindCallContext struct {
@@ -61,7 +57,7 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 			Fatal("Failed to initialize controller contract")
 	}
 
-	refBlockNum := latestBlockNumber.Int64() - skipBlocksNearHeadOfLatest
+	refBlockNum := latestBlockNumber.Int64() - 2*skipBlocksNearHeadOfLatest
 
 	return &Provider{
 		RpcEthClient: w3c.Eth,
