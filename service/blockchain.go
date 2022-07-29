@@ -67,7 +67,7 @@ func (bs *BlockchainService) initAppCoins() error {
 	}
 
 	// iterate all controller APPs to init APP contract instances
-	err := bs.provider.IterateControllerApps(baseCallOpt, func(coin common.Address) error {
+	err := bs.provider.IterateTrackedAppCoins(baseCallOpt, func(coin common.Address) error {
 		owner, err := bs.provider.GetAppCoinContractOwner(baseCallOpt, coin)
 		if err != nil {
 			return err

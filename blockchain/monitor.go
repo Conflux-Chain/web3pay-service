@@ -55,12 +55,12 @@ func MustNewMonitor(provider *Provider) *Monitor {
 		BlockNumber: big.NewInt(refBlockNumber),
 	}
 
-	appCoinAddrs, err := provider.ListControllerAppCoins(baseCallOpt)
+	appCoinAddrs, err := provider.ListTrackedAppCoins(baseCallOpt)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to get APP coin list to init monitor")
 	}
 
-	config := NewMonitorConfig(refBlockNumber+1, provider.ControllerAddress(), appCoinAddrs)
+	config := NewMonitorConfig(refBlockNumber+1, stdConf.controllerContractAddr, appCoinAddrs)
 	logrus.WithField("monitorConfig", config).Debug("Monitor config loaded")
 
 	return &Monitor{

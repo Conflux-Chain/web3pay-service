@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -28,8 +27,6 @@ type contractBindCallContext struct {
 // Provider provides blockchain operations.
 type Provider struct {
 	*client.RpcEthClient
-
-	config               *Config
 	bindCallContext      *contractBindCallContext
 	controller           *contract.Controller
 	mutex                sync.Mutex
@@ -37,22 +34,18 @@ type Provider struct {
 	referenceBlockNumber int64    // reference block number for ops (eg., sync)
 }
 
-func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
-	var conf Config
-	viper.MustUnmarshalKey("blockchain", &conf)
-
+func MustNewProvider(w3c *web3go.Client) *Provider {
 	latestBlockNumber, err := w3c.Eth.BlockNumber()
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to get latest block number")
 	}
 
 	clientForContract, singerFn := w3c.ToClientForContract()
-	ctrlAddr := common.HexToAddress(conf.ControllerContractAddr)
 
 	// init controller contract stub
-	ctrlCaller, err := contract.NewController(ctrlAddr, clientForContract)
+	ctrlCaller, err := contract.NewController(stdConf.controllerContractAddr, clientForContract)
 	if err != nil {
-		logrus.WithField("config", conf).
+		logrus.WithField("ctrlAddr", stdConf.controllerContractAddr).
 			WithError(err).
 			Fatal("Failed to initialize controller contract")
 	}
@@ -61,7 +54,6 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 
 	return &Provider{
 		RpcEthClient: w3c.Eth,
-		config:       &conf,
 		bindCallContext: &contractBindCallContext{
 			contractClient: clientForContract,
 			signer:         singerFn,
@@ -69,14 +61,6 @@ func MustNewProviderFromViper(w3c *web3go.Client) *Provider {
 		controller:           ctrlCaller,
 		referenceBlockNumber: refBlockNum,
 	}
-}
-
-func (p *Provider) ControllerAddress() common.Address {
-	return common.HexToAddress(p.config.ControllerContractAddr)
-}
-
-func (p *Provider) ControllerContract() *contract.Controller {
-	return p.controller
 }
 
 func (p *Provider) ReferenceBlockNumber() int64 {
@@ -167,13 +151,11 @@ func (p *Provider) GetAppCoinContractOwner(
 	return &appCoinOwner, nil
 }
 
-// ListControllerAppCoins lists addresses of all APP coins created by the controller contract.
-// TODO: support config to filter by specific contract creator.
-func (p *Provider) ListControllerAppCoins(
-	callOpts *bind.CallOpts, creator ...common.Address) ([]common.Address, error) {
+// ListTrackedAppCoins lists all tracked APP coin contracts.
+func (p *Provider) ListTrackedAppCoins(callOpts *bind.CallOpts) ([]common.Address, error) {
 	var appCoinAddrs []common.Address
 
-	err := p.IterateControllerApps(callOpts, func(coin common.Address) error {
+	err := p.IterateTrackedAppCoins(callOpts, func(coin common.Address) error {
 		appCoinAddrs = append(appCoinAddrs, coin)
 		return nil
 	})
@@ -203,23 +185,53 @@ func (p *Provider) GetAppCoinResources(
 	return appResources, nil
 }
 
-// IterateControllerApps iterates all APP contracts created by controller contract.
-// TODO: support config to filter by specific contract creator.
-func (p *Provider) IterateControllerApps(
-	callOpts *bind.CallOpts, iterator func(common.Address) error, creator ...common.Address) error {
-	for offset := int64(0); ; {
-		appContractAddrs, total, err := p.controller.ListApp(
-			callOpts, big.NewInt(offset), big.NewInt(int64(defaultListAppPageSize)),
-		)
+// IterateTrackedApps iterates all tracked APP coin contracts.
+func (p *Provider) IterateTrackedAppCoins(
+	callOpts *bind.CallOpts, iterator func(common.Address) error) error {
+	if stdConf.creatorAddr != nil {
+		return p.iterateControllerAppCoins(callOpts, iterator, *stdConf.creatorAddr)
+	}
 
-		if err != nil {
-			logrus.WithError(err).Info("Failed to list APP contracts by controller")
-			return errors.WithMessage(err, "failed to list APP contracts")
+	return p.iterateControllerAppCoins(callOpts, iterator)
+}
+
+// iterateControllerApps iterates all APP coin contracts created by controller contracts filtered by creator.
+func (p *Provider) iterateControllerAppCoins(
+	callOpts *bind.CallOpts, iterator func(common.Address) error, creators ...common.Address) error {
+	for offset := int64(0); ; {
+		var appContractAddrs []common.Address
+		var total *big.Int
+		var listErr error
+
+		if len(creators) > 0 {
+			appInfos, err := p.controller.ListAppByCreator(
+				callOpts, creators[0], uint32(offset), big.NewInt(int64(defaultListAppPageSize)),
+			)
+
+			if listErr = err; listErr == nil {
+				total = appInfos.Total
+				for i := range appInfos.Apps {
+					appContractAddrs = append(appContractAddrs, appInfos.Apps[i].Addr)
+				}
+			}
+		} else {
+			appContractAddrs, total, listErr = p.controller.ListApp(
+				callOpts, big.NewInt(offset), big.NewInt(int64(defaultListAppPageSize)),
+			)
+		}
+
+		if listErr != nil {
+			logrus.WithField("filterCreator", creators).
+				WithError(listErr).
+				Info("Failed to list APP contracts by controller")
+			return errors.WithMessage(listErr, "failed to list APP contracts")
 		}
 
 		for i := range appContractAddrs {
 			if err := iterator(appContractAddrs[i]); err != nil {
-				logrus.WithError(err).Info("Failed to iterate APP contracts by controller")
+				logrus.WithFields(logrus.Fields{
+					"filterCreator": creators, "appContractAddr": appContractAddrs[i],
+				}).WithError(listErr).Info("Failed to iterate APP contracts by controller")
 				return errors.WithMessage(err, "failed to iterate APP contract")
 			}
 		}

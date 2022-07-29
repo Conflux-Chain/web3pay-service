@@ -29,7 +29,7 @@ func start(cmd *cobra.Command, args []string) {
 	w3client := util.MustNewEthClientFromViper()
 
 	// blockchain ops provider
-	chainOpsProvider := blockchain.MustNewProviderFromViper(w3client)
+	chainOpsProvider := blockchain.MustNewProvider(w3client)
 
 	// service factory
 	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainOpsProvider)
