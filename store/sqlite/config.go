@@ -7,6 +7,7 @@ import (
 
 	viperutil "github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/sirupsen/logrus"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
@@ -14,8 +15,10 @@ import (
 
 // Config represents the sqlite configurations to open a database instance.
 type Config struct {
-	Database        string        `default:"file::memory:?cache=shared"`
-	ConnMaxLifetime time.Duration `default:"3ms"`
+	Database string `default:"file::memory:?cache=shared"`
+	// For shared memory sqlite instance, never expire the connection otherwise
+	// the memory db may be released once no connection existed.
+	ConnMaxLifetime time.Duration `default:"0"`
 	MaxOpenConns    int           `default:"10"`
 	MaxIdleConns    int           `default:"10"`
 }

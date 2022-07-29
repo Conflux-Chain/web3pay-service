@@ -46,7 +46,9 @@ api:
 
 # Blockchain Configurations
 blockchain:
-  # Controller contract address from where to retrieve list of tracking APPCoin's
-  controllerContractAddr: ${controller_contract_address}
-  # Operator private key used to sign billing operation for blockchain submmission.
-  operatorPrivateKey: ${operator_private_key}
+  # Controller contract address from where to retrieve list of tracking APP coins (mandatory).
+  controllerContractAddr:
+  # Creator address used to filter APP coins to be tracked (optional).
+  creatorAddr:
+  # Operator private key used to sign transaction for billing charge (mandatory).
+  operatorPrivateKey:
