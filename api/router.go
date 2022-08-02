@@ -15,8 +15,10 @@ func newRouter(svcFactory *service.Factory) *mux.Router {
 	r.Use(LogTracingMiddleware)
 	r.Use(LoggingMiddleware)
 
-	billingCtr := NewBillingController()
-	r.HandleFunc("/billing", Wrap(billingCtr.Charge, "web3pay/api/billing")).Methods("POST")
+	billingCtr := NewBillingController(svcFactory.Billing)
+	r.HandleFunc("/billing", Wrap(billingCtr.Charge, "web3pay/api/billing")).
+		Methods("POST").
+		Headers("Content-Type", "application/json")
 
 	return r
 }
