@@ -39,7 +39,7 @@ func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
 	chargeReq := &service.ChargeRequest{
 		ResourceId:   cr.ResourceId,
 		DryRun:       cr.DryRun,
-		ContractAddr: contractAddr,
+		AppCoinAddr:  contractAddr,
 		CustomerAddr: customerAddr,
 	}
 
