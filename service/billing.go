@@ -5,7 +5,6 @@ import (
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
-	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -17,50 +16,44 @@ import (
 type ChargeRequest struct {
 	ResourceId   string
 	DryRun       bool
-	ContractAddr common.Address
+	AppCoinAddr  common.Address
 	CustomerAddr common.Address
 }
 
 type ChargeReceipt struct {
 	ResourceId string
 	Fee        uint64
-	Balance    uint64
 }
 
 type BillingService struct {
-	accountSvc *AccountService
-	chainSvc   *BlockchainService
-	store      *sqlite.SqliteStore
-	kmutex     *util.KMutex
+	chainSvc *BlockchainService
+	store    *sqlite.SqliteStore
 }
 
-func NewBillingService(store *sqlite.SqliteStore, accountSvc *AccountService, chainSvc *BlockchainService) *BillingService {
+func NewBillingService(store *sqlite.SqliteStore, chainSvc *BlockchainService) *BillingService {
 	return &BillingService{
-		accountSvc: accountSvc,
-		chainSvc:   chainSvc,
-		store:      store,
-		kmutex:     util.NewKMutex(),
+		store: store, chainSvc: chainSvc,
 	}
 }
 
 func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*ChargeReceipt, error) {
-	resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.ContractAddr, req.ResourceId)
+	resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.AppCoinAddr, req.ResourceId)
 	if err != nil {
 		return nil, err
 	}
 
-	appCoinStatus, err := bs.accountSvc.GetStatus(req.ContractAddr, req.CustomerAddr)
+	appCoinAccount, err := bs.chainSvc.GetAccountStatus(req.AppCoinAddr, req.CustomerAddr)
 	if err != nil {
 		return nil, err
 	}
 
 	// account frozen?
-	if appCoinStatus.Frozen > 0 {
+	if appCoinAccount.IsFrozen() {
 		return nil, model.ErrAccountAddrFrozen
 	}
 
 	// insufficient balance?
-	if resource.Weight > uint32(appCoinStatus.Balance) {
+	if int64(resource.Weight) > appCoinAccount.TotalBalance() {
 		return nil, model.ErrInsufficentBalance
 	}
 
@@ -68,43 +61,41 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 		return &ChargeReceipt{
 			ResourceId: resource.ResourceId,
 			Fee:        uint64(resource.Weight),
-			Balance:    appCoinStatus.Balance - uint64(resource.Weight),
 		}, nil
 	}
 
-	var newBalance uint64
-	statement := model.BillingStatement{
-		Contract:  req.ContractAddr.String(),
-		Address:   req.CustomerAddr.String(),
-		Fee:       uint64(resource.Weight),
-		Calls:     1,
+	bill := model.Bill{
+		Coin:      appCoinAccount.Coin,
+		Address:   appCoinAccount.Address,
+		Fee:       int64(resource.Weight),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 
 	logger := logrus.WithFields(logrus.Fields{
-		"statement": statement, "resource": resource, "status": appCoinStatus,
+		"statement": bill,
+		"resource":  resource,
+		"account":   appCoinAccount,
 	})
 
 	// TODO: need some benchmarking here in case of poor performance.
 	if err := bs.store.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "contract"}, {Name: "address"}},
+		res := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "coin"}, {Name: "address"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
 				"fee":        gorm.Expr("fee + ?", resource.Weight),
-				"calls":      gorm.Expr("calls + 1"),
 				"updated_at": time.Now(),
 			}),
-		}).Create(&statement).Error; err != nil {
-			logger.WithError(err).Info("Failed to upsert billing statement")
-			return errors.WithMessage(err, "failed to upsert billing statement")
+		}).Create(&bill)
+
+		if err := res.Error; err != nil {
+			logger.WithError(err).Error("Failed to upsert bill")
+			return errors.WithMessage(err, "failed to upsert bill")
 		}
 
-		newBalance, err := bs.accountSvc.DeductBalance(req.ContractAddr, req.CustomerAddr, uint64(resource.Weight))
-		if err != nil {
-			logger.WithField("newBalance", newBalance).Info("Failed to deduct account balance")
-		}
-		return err
+		// TODO add billing statements
+
+		return bs.chainSvc.DeductAccountBalance(req.AppCoinAddr, req.CustomerAddr, int64(resource.Weight))
 	}); err != nil {
 		return nil, err
 	}
@@ -112,6 +103,5 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	return &ChargeReceipt{
 		ResourceId: resource.ResourceId,
 		Fee:        uint64(resource.Weight),
-		Balance:    newBalance,
 	}, nil
 }

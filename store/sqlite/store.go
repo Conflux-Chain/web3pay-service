@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
@@ -29,4 +30,19 @@ func (ms *SqliteStore) Close() error {
 	} else {
 		return db.Close()
 	}
+}
+
+func (ms *SqliteStore) GetBill(coin, addr string) (*model.Bill, bool, error) {
+	bill := &model.Bill{}
+
+	err := ms.First(bill, "coin = ? AND address = ? AND status = 0", coin, addr).Error
+	if ms.IsRecordNotFound(err) {
+		return nil, false, nil
+	}
+
+	if err != nil {
+		return nil, false, err
+	}
+
+	return bill, true, nil
 }

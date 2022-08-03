@@ -7,6 +7,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/spf13/cobra"
@@ -24,6 +25,11 @@ func start(cmd *cobra.Command, args []string) {
 	// sqlite store
 	config := sqlite.MustNewConfigFromViper()
 	sqliteStore := config.MustOpenOrCreate(model.All...)
+	defer sqliteStore.Close()
+
+	// memory store
+	memStore := memdb.MustNewStoreFromViper()
+	defer memStore.Close()
 
 	// eth client
 	w3client := util.MustNewEthClientFromViper()
@@ -32,10 +38,10 @@ func start(cmd *cobra.Command, args []string) {
 	chainOpsProvider := blockchain.MustNewProvider(w3client)
 
 	// service factory
-	serviceFactory := service.MustNewFactory(w3client, sqliteStore, chainOpsProvider)
+	serviceFactory := service.MustNewFactory(w3client, sqliteStore, memStore, chainOpsProvider)
 
 	// monitor
-	chainMonitor := blockchain.MustNewMonitor(chainOpsProvider)
+	chainMonitor := blockchain.MustNewMonitor(chainOpsProvider, serviceFactory.Blockchain)
 
 	// start monitor server
 	go chainMonitor.Sync()

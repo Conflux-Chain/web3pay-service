@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"container/list"
 	"math/big"
 	"time"
 
@@ -18,9 +19,6 @@ const (
 
 	syncIntervalNormal  = time.Second * 1
 	syncIntervalCatchUp = time.Millisecond * 100
-
-	// Skip some blocks near head of the latest block to reduce the possibility of chain reorg.
-	skipBlocksNearHeadOfLatest = 40
 )
 
 type MonitorConfig struct {
@@ -44,12 +42,13 @@ func NewMonitorConfig(
 
 // Monitor sync blockchain event logs to monitor contract events.
 type Monitor struct {
-	*MonitorConfig                  // monitor configurations
-	provider       *Provider        // blockchain ops provider
-	blockWindow    *blockHashWindow // window to cache sequent block hashes
+	*MonitorConfig                              // monitor configurations
+	provider              *Provider             // blockchain ops provider
+	blockWindow           *blockHashWindow      // window to cache sequent block hashes
+	contractEventObserver ContractEventObserver // contract event observer
 }
 
-func MustNewMonitor(provider *Provider) *Monitor {
+func MustNewMonitor(provider *Provider, eventObserver ContractEventObserver) *Monitor {
 	refBlockNumber := provider.ReferenceBlockNumber()
 	baseCallOpt := &bind.CallOpts{
 		BlockNumber: big.NewInt(refBlockNumber),
@@ -64,9 +63,10 @@ func MustNewMonitor(provider *Provider) *Monitor {
 	logrus.WithField("monitorConfig", config).Debug("Monitor config loaded")
 
 	return &Monitor{
-		MonitorConfig: config,
-		provider:      provider,
-		blockWindow:   newBlockHashWindow(blockWinCapacity),
+		MonitorConfig:         config,
+		provider:              provider,
+		blockWindow:           newBlockHashWindow(blockWinCapacity),
+		contractEventObserver: eventObserver,
 	}
 }
 
@@ -77,30 +77,38 @@ func (m *Monitor) Sync() {
 	ticker := time.NewTicker(m.SyncIntervalCatchUp)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		complete, err := m.syncOnce()
-		if err != nil || complete {
-			ticker.Reset(m.SyncIntervalNormal)
-		} else {
-			ticker.Reset(m.SyncIntervalCatchUp)
-		}
+	confirmQueue := m.contractEventObserver.StatusConfirmQueue()
+	confirmTasks := list.New()
 
-		if err != nil {
-			logrus.WithField("syncBlock", m.SyncFromBlockNumber).
-				WithError(err).
-				Error("Monitor failed to sync blockchain data")
+	for {
+		select {
+		case <-ticker.C:
+			complete, err := m.syncOnce(confirmTasks)
+			if err != nil || complete {
+				ticker.Reset(m.SyncIntervalNormal)
+			} else {
+				ticker.Reset(m.SyncIntervalCatchUp)
+			}
+
+			if err != nil {
+				logrus.WithField("syncBlock", m.SyncFromBlockNumber).
+					WithError(err).
+					Error("Monitor failed to sync blockchain data")
+			}
+		case task := <-confirmQueue:
+			confirmTasks.PushBack(task)
 		}
 	}
 }
 
-func (m *Monitor) syncOnce() (bool, error) {
+func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	latestBlockBigInt, err := m.provider.BlockNumber()
 	if err != nil {
 		return false, errors.WithMessage(err, "failed to query latest block")
 	}
 
 	syncBlockNum := (types.BlockNumber)(m.SyncFromBlockNumber)
-	ceilBlockNumber := latestBlockBigInt.Int64() - skipBlocksNearHeadOfLatest
+	ceilBlockNumber := latestBlockBigInt.Int64() - skipBlocksAheadOfLeatestBlock
 
 	logger := logrus.WithFields(logrus.Fields{
 		"latestBlockNumber": latestBlockBigInt.Int64(),
@@ -190,8 +198,38 @@ func (m *Monitor) syncOnce() (bool, error) {
 		m.blockWindow.reset()
 	}
 
-	m.SyncFromBlockNumber++
+	// Confirm subscribed APP coin account status
+	baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(m.SyncFromBlockNumber)}
 
+	// TODO: use batch call?
+	for v := confirmTasks.Front(); v != nil; {
+		task := v.Value.([2]common.Address)
+		coin, addr := task[0], task[1]
+
+		balance, frozen, err := m.provider.GetAppCoinBalanceAndFrozenStatus(baseCallOpt, coin, addr)
+		if err != nil {
+			logger.WithField("confirmTask", task).
+				WithError(err).
+				Info("Monitor failed to fetch APP coin account status for confirm task")
+			v = v.Next()
+			continue
+		}
+
+		err = m.contractEventObserver.OnConfirmStatus(coin, addr, balance, frozen, m.SyncFromBlockNumber)
+		if err != nil {
+			logger.WithField("confirmTask", task).
+				WithError(err).
+				Info("Monitor failed to confirm APP coin account status")
+			v = v.Next()
+			continue
+		}
+
+		nv := v.Next()
+		confirmTasks.Remove(v)
+		v = nv
+	}
+
+	m.SyncFromBlockNumber++
 	return int64(syncBlockNum) == ceilBlockNumber, nil
 }
 
@@ -237,14 +275,12 @@ func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 }
 
 func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinWithdraw, err := contract.UnpackAppCoinWithdraw(appCoinAbi, log)
+	eventAppCoinResrcChanged, err := contract.UnpackAppCoinResourceChanged(appCoinAbi, log)
 	if err != nil {
 		return err
 	}
 
-	// TODO: notify observers for update
-	_ = eventAppCoinWithdraw
-	return nil
+	return m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged)
 }
 
 func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -253,9 +289,7 @@ func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) err
 		return err
 	}
 
-	// TODO: notify observers for update
-	_ = eventAppCoinWithdraw
-	return nil
+	return m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw)
 }
 
 func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -264,9 +298,7 @@ func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error
 		return err
 	}
 
-	// TODO: notify observers for update
-	_ = eventAppCoinFrozen
-	return nil
+	return m.contractEventObserver.OnFrozen(eventAppCoinFrozen)
 }
 
 func (m *Monitor) handleAppCoinMinted(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -275,9 +307,7 @@ func (m *Monitor) handleAppCoinMinted(appCoinAbi *abi.ABI, log *types.Log) error
 		return err
 	}
 
-	// TODO: notify observers for update
-	_ = eventAppCoinMinted
-	return nil
+	return m.contractEventObserver.OnMinted(eventAppCoinMinted)
 }
 
 func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
@@ -297,20 +327,25 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 		return false, err
 	}
 
-	// TODO: notify observers for update
-	_ = eventAppCreated
-	return true, nil
+	if stdConf.creatorAddr != nil && *stdConf.creatorAddr != eventAppCreated.AppOwner {
+		// not an APP coin by concerned creator
+		return false, nil
+	}
+
+	// add observing for new created APP coin
+	m.AppCoinAddresses = append(m.AppCoinAddresses, eventAppCreated.Addr)
+	return true, m.contractEventObserver.OnAppCreated(eventAppCreated)
 }
 
 func (m *Monitor) reorgRevert(revertToBlock int64) error {
+	logrus.WithField("revertToBlock", revertToBlock).Info("Monitor reorg reverted")
+
 	// remove block hash of reverted block from cache window
 	m.blockWindow.popn(revertToBlock)
 
 	// reset syncer start block
 	m.SyncFromBlockNumber = revertToBlock
 
-	// TODO: notify observer for reorg revert
-
-	logrus.WithField("revertToBlock", revertToBlock).Info("Monitor reorg reverted")
-	return nil
+	// notify observer for reorg revert
+	return m.contractEventObserver.OnReorgRevert(revertToBlock)
 }

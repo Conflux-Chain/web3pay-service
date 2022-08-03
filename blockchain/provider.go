@@ -17,6 +17,10 @@ const (
 	// default list page size
 	defaultListAppPageSize      = 50
 	defaultListResourcePageSize = 50
+
+	// skip blocks ahead of latest block number to reduce chain reorg
+	// while sync or state call.
+	skipBlocksAheadOfLeatestBlock = 35
 )
 
 type contractBindCallContext struct {
@@ -50,7 +54,7 @@ func MustNewProvider(w3c *web3go.Client) *Provider {
 			Fatal("Failed to initialize controller contract")
 	}
 
-	refBlockNum := latestBlockNumber.Int64() - 2*skipBlocksNearHeadOfLatest
+	refBlockNum := latestBlockNumber.Int64() - 2*skipBlocksAheadOfLeatestBlock
 
 	return &Provider{
 		RpcEthClient: w3c.Eth,
@@ -63,10 +67,12 @@ func MustNewProvider(w3c *web3go.Client) *Provider {
 	}
 }
 
+// ReferenceBlockNumber returns reference block number.
 func (p *Provider) ReferenceBlockNumber() int64 {
 	return p.referenceBlockNumber
 }
 
+// GetAppCoinContract gets APP coin contract caller.
 func (p *Provider) GetAppCoinContract(appCoinAddr common.Address) (*contract.APPCoin, error) {
 	if v, ok := p.appCoins.Load(appCoinAddr); ok {
 		return v.(*contract.APPCoin), nil
@@ -92,8 +98,9 @@ func (p *Provider) GetAppCoinContract(appCoinAddr common.Address) (*contract.APP
 	return appCoinCaller, nil
 }
 
+// GetAppCoinFrozenStatus gets APP coin frozen status for specific address.
 func (p *Provider) GetAppCoinFrozenStatus(
-	callOpts *bind.CallOpts, coin, address common.Address) (uint64, error) {
+	callOpts *bind.CallOpts, coin, address common.Address) (int64, error) {
 	appCoinContract, err := p.GetAppCoinContract(coin)
 	if err != nil {
 		return 0, errors.WithMessage(err, "failed to get APP coin contract")
@@ -108,11 +115,27 @@ func (p *Provider) GetAppCoinFrozenStatus(
 		return 0, errors.WithMessage(err, "failed to get APP coin fronze status")
 	}
 
-	return fronzen.Uint64(), nil
+	return fronzen.Int64(), nil
 }
 
+func (p *Provider) GetAppCoinBalanceAndFrozenStatus(
+	callOpts *bind.CallOpts, coin, address common.Address) (int64, int64, error) {
+	balance, err := p.GetAppCoinBalance(callOpts, coin, address)
+	if err != nil {
+		return 0, 0, errors.WithMessage(err, "failed to get balance")
+	}
+
+	frozen, err := p.GetAppCoinFrozenStatus(callOpts, coin, address)
+	if err != nil {
+		return 0, 0, errors.WithMessage(err, "failed to get frozen status")
+	}
+
+	return balance, frozen, err
+}
+
+// GetAppCoinBalance gets APP coin balance for specific address.
 func (p *Provider) GetAppCoinBalance(
-	callOpts *bind.CallOpts, coin, address common.Address) (uint64, error) {
+	callOpts *bind.CallOpts, coin, address common.Address) (int64, error) {
 	appCoinContract, err := p.GetAppCoinContract(coin)
 	if err != nil {
 		return 0, errors.WithMessage(err, "failed to get APP coin contract")
@@ -127,10 +150,10 @@ func (p *Provider) GetAppCoinBalance(
 		return 0, errors.WithMessage(err, "failed to get APP coin balance")
 	}
 
-	return balance.Uint64(), nil
+	return balance.Int64(), nil
 }
 
-// GetAppCoinContractOwner gets concerned APP coin contract owner.
+// GetAppCoinContractOwner gets APP coin contract owner.
 func (p *Provider) GetAppCoinContractOwner(
 	callOpts *bind.CallOpts, coin common.Address) (*common.Address, error) {
 	appCoinContract, err := p.GetAppCoinContract(coin)
@@ -185,7 +208,7 @@ func (p *Provider) GetAppCoinResources(
 	return appResources, nil
 }
 
-// IterateTrackedApps iterates all tracked APP coin contracts.
+// IterateTrackedAppCoins iterates all tracked APP coin contracts.
 func (p *Provider) IterateTrackedAppCoins(
 	callOpts *bind.CallOpts, iterator func(common.Address) error) error {
 	if stdConf.creatorAddr != nil {
@@ -195,7 +218,7 @@ func (p *Provider) IterateTrackedAppCoins(
 	return p.iterateControllerAppCoins(callOpts, iterator)
 }
 
-// iterateControllerApps iterates all APP coin contracts created by controller contracts filtered by creator.
+// iterateControllerAppCoins iterates all APP coin contracts created by controller contracts filtered by creator.
 func (p *Provider) iterateControllerAppCoins(
 	callOpts *bind.CallOpts, iterator func(common.Address) error, creators ...common.Address) error {
 	for offset := int64(0); ; {
