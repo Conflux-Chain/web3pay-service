@@ -100,15 +100,11 @@ func (ms *MemStore) DeleteAccount(appCoin, address common.Address) (*model.AppCo
 
 func (ms *MemStore) GetAccount(appCoin, address common.Address) (*model.AppCoinAccount, bool, error) {
 	account, err := ms.Txn(false).First("account", "id", appCoin.String(), address.String())
-	if ms.IsRecordNotFound(err) {
-		return nil, false, nil
+	if err != nil || account == nil {
+		return nil, false, err
 	}
 
-	if err == nil {
-		return account.(*model.AppCoinAccount), true, nil
-	}
-
-	return nil, false, err
+	return account.(*model.AppCoinAccount), true, nil
 }
 
 func (ms *MemStore) DeleteAccountsAfterBlock(blockNumber int64) error {
