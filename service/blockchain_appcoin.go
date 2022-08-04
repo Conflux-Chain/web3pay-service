@@ -11,6 +11,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	defaultResourceId = "default"
+)
+
 type resourceConfig = contract.AppConfigConfigEntry
 type AppCoinBase struct {
 	Addr      common.Address            // contract address
@@ -54,7 +58,7 @@ func (bs *BlockchainService) initAppCoins() error {
 func (svc *BlockchainService) GetAppCoinResourceWithId(
 	coin common.Address, resourceId string) (*contract.AppConfigConfigEntry, error) {
 	if len(resourceId) == 0 { // if resourceId is empty, use default resource
-		resourceId = "default"
+		resourceId = defaultResourceId
 	}
 
 	svc.appCoinMutex.Lock()
@@ -67,6 +71,11 @@ func (svc *BlockchainService) GetAppCoinResourceWithId(
 
 	resrc, ok := appCoin.Resources[resourceId]
 	if !ok {
+		if resourceId != defaultResourceId { // not existed?
+			// use default resource
+			return svc.GetAppCoinResourceWithId(coin, defaultResourceId)
+		}
+
 		return nil, model.ErrAppCoinResourceNotFound
 	}
 
