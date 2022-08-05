@@ -25,7 +25,7 @@ type AppCoinBase struct {
 func (bs *BlockchainService) initAppCoins() error {
 	refBlockNumber := bs.provider.ReferenceBlockNumber()
 	baseCallOpt := &bind.CallOpts{
-		BlockNumber: big.NewInt(refBlockNumber),
+		BlockNumber: big.NewInt(int64(refBlockNumber)),
 	}
 
 	// iterate all controller APPs to init APP contract instances

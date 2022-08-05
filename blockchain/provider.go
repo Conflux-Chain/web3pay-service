@@ -141,6 +141,7 @@ func (p *Provider) GetAppCoinBalance(
 		return nil, errors.WithMessage(err, "failed to get APP coin contract")
 	}
 
+	// FIXME: use balanceOfWithAirdrop instead
 	balance, err := appCoinContract.BalanceOf(callOpts, address)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
