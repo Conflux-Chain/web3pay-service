@@ -161,8 +161,8 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	logger.WithField("numLogs", len(logs)).Debug("Monitor fetched block event logs")
 
 	for i := range logs {
-		if logs[i].BlockHash != block.Hash {
-			// block hash not matched, chain reorg during fetch? have a retry
+		if logs[i].BlockHash != block.Hash || logs[i].BlockNumber != block.Number.Uint64() {
+			// block number or hash not matched, chain reorg during fetch? have a retry
 			return false, nil
 		}
 
@@ -210,7 +210,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 		if err != nil {
 			logger.WithField("confirmTask", task).
 				WithError(err).
-				Info("Monitor failed to fetch APP coin account status for confirm task")
+				Info("Monitor failed to fetch APP coin account status for confirming task")
 			v = v.Next()
 			continue
 		}

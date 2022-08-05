@@ -2,6 +2,10 @@ package util
 
 import "sync"
 
+var (
+	stdKmutex *KMutex
+)
+
 type MutexKey string // mutex key used to identify different mutexes
 
 type kMutexItem struct { // key based mutex item
@@ -61,4 +65,16 @@ func (km *KMutex) Unlock(key MutexKey) {
 	}
 
 	lock.Unlock()
+}
+
+func init() {
+	stdKmutex = NewKMutex()
+}
+
+func KLock(key MutexKey) {
+	stdKmutex.Lock(key)
+}
+
+func KUnlock(key MutexKey) {
+	stdKmutex.Unlock(key)
 }

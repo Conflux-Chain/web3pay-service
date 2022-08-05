@@ -1,22 +1,34 @@
 package model
 
 import (
+	"math"
+	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/shopspring/decimal"
+)
+
+const (
+	BillStatusCreated = iota + 1
+	BillStatusSubmitting
+	BillStatusSubmitted
 )
 
 // Bill bills to settle on blockchain
 type Bill struct {
-	ID      uint64
-	Coin    string `gorm:"size:64;not null;uniqueIndex:idx_coin_addr,priority:1"` // APP coin contract address
-	Address string `gorm:"size:64;not null;uniqueIndex:idx_coin_addr,priority:2"` // account address
-	Fee     int64  `gorm:"default:0"`                                             // total deduction fee
-
-	Status uint8 `gorm:"default:0"` // 0 - created, 1 - submmitting, 2 - submitted
-
-	CreatedAt time.Time // create date
-	UpdatedAt time.Time // update date
+	ID uint64
+	// APP coin contract address
+	Coin string `gorm:"size:64;not null;index:idx_coin_addr,priority:1"`
+	// account address
+	Address string `gorm:"size:64;not null;index:idx_coin_addr,priority:2"`
+	// total deduction fee
+	Fee decimal.Decimal `gorm:"size:128;type:string"`
+	// 0 - created, 1 - submitting, 2 - submitted
+	Status uint8 `gorm:"default:0"`
+	// create date
+	CreatedAt time.Time
+	// update date
+	UpdatedAt time.Time
 }
 
 var All = []interface{}{
@@ -24,28 +36,36 @@ var All = []interface{}{
 }
 
 type AppCoinAccount struct {
-	Coin           string // APP coin contract address
-	Address        string // account address
-	Frozen         int64  // frozen status
-	Fee            int64  // deduction fee
-	Balance        int64  // pending balance
-	ConfirmedBlock int64  // the confirmed block number, math.MaxInt64 means not confirmed
+	// APP coin contract address
+	Coin string
+	// account address
+	Address string
+	// frozen status, 0 means not frozen
+	Frozen int64
+	// deduction fee
+	Fee decimal.Decimal
+	// pending balance
+	Balance decimal.Decimal
+	// the confirmed block number, math.MaxInt64 means not confirmed
+	ConfirmedBlock int64
 }
 
-func NewAppCoinAccount(coin, address string, frozen, balance int64) *AppCoinAccount {
+func NewAppCoinAccount(coin, address string, frozen int64, balance *big.Int) *AppCoinAccount {
 	account := AppCoinAccount{
 		Coin:           coin,
 		Address:        address,
 		Frozen:         frozen,
-		Balance:        balance,
+		Balance:        decimal.NewFromBigInt(balance, 0),
+		Fee:            decimal.NewFromInt(0),
 		ConfirmedBlock: math.MaxInt64, // unconfirmed status
 	}
 
 	return &account
 }
 
-func (account *AppCoinAccount) TotalBalance() int64 {
-	return account.Balance - account.Fee
+func (account *AppCoinAccount) TotalBalance() *big.Int {
+	res := account.Balance.Sub(account.Fee)
+	return res.BigInt()
 }
 
 func (account *AppCoinAccount) IsFrozen() bool {
@@ -56,7 +76,6 @@ func (account *AppCoinAccount) IsConfirmed() bool {
 	return account.ConfirmedBlock != math.MaxInt64
 }
 
-func (account *AppCoinAccount) IncreaseFee(addFee int64) int64 {
-	account.Fee += addFee
-	return account.Fee
+func (account *AppCoinAccount) IncreaseFee(delta *big.Int) {
+	account.Fee = account.Fee.Add(decimal.NewFromBigInt(delta, 0))
 }

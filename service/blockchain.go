@@ -7,6 +7,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/Conflux-Chain/web3pay-service/util"
+	myqueue "github.com/MoeYang/go-queue"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gammazero/workerpool"
@@ -17,11 +18,13 @@ import (
 
 const (
 	signatureAddressCacheSize = 1_00_000
+	statusConfirmQueueSize    = 5000
+	workerPoolSize            = 2
+	delayQueueSize            = 5000
 )
 
 type BlockchainService struct {
 	sigAddrCache              *lru.Cache // sha3(sig) => addr
-	kmutex                    *util.KMutex
 	sqliteStore               *sqlite.SqliteStore
 	memStore                  *memdb.MemStore
 	provider                  *blockchain.Provider
@@ -29,6 +32,7 @@ type BlockchainService struct {
 	appCoinMutex              sync.Mutex
 	appCoinStatusConfirmQueue chan [2]common.Address
 	workerPool                *workerpool.WorkerPool
+	delayQueue                *myqueue.DelayQueue
 }
 
 func NewBlockchainService(
@@ -36,12 +40,12 @@ func NewBlockchainService(
 ) (*BlockchainService, error) {
 	bs := &BlockchainService{
 		provider:                  provider,
-		kmutex:                    util.NewKMutex(),
 		sqliteStore:               sqliteStore,
 		memStore:                  memStore,
 		appCoinBaseMap:            make(map[common.Address]AppCoinBase),
-		appCoinStatusConfirmQueue: make(chan [2]common.Address, 10),
-		workerPool:                workerpool.New(2),
+		appCoinStatusConfirmQueue: make(chan [2]common.Address, statusConfirmQueueSize),
+		workerPool:                workerpool.New(workerPoolSize),
+		delayQueue:                myqueue.NewDelayQueue(delayQueueSize),
 	}
 
 	lruCache, err := lru.New(signatureAddressCacheSize)
@@ -78,8 +82,8 @@ func (svc *BlockchainService) RecoverAddressBySignature(msg, sig string) (string
 	}
 
 	lockKey := util.MutexKey(cacheKey.String())
-	svc.kmutex.Lock(lockKey)
-	defer svc.kmutex.Unlock(lockKey)
+	util.KLock(lockKey)
+	defer util.KUnlock(lockKey)
 
 	if val, ok := svc.sigAddrCache.Get(cacheKey); ok { // double checking
 		return val.(string), nil

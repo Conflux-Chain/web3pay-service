@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/Conflux-Chain/go-conflux-util v0.0.0-20220216032819-554815f9dbe6
+	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.10.15
 	github.com/gammazero/workerpool v1.1.2
 	github.com/gorilla/handlers v1.5.1
@@ -13,6 +14,7 @@ require (
 	github.com/openweb3/go-rpc-provider v0.2.8
 	github.com/openweb3/web3go v0.2.0
 	github.com/pkg/errors v0.9.1
+	github.com/shopspring/decimal v1.3.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.5.0
 	github.com/stretchr/testify v1.7.0
