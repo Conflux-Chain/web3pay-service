@@ -2,6 +2,7 @@ package service
 
 import (
 	"sync"
+	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
@@ -12,15 +13,17 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gammazero/workerpool"
 	lru "github.com/hashicorp/golang-lru"
+	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	signatureAddressCacheSize = 1_00_000
+	signatureAddressCacheSize = 50_000
 	statusConfirmQueueSize    = 5000
 	workerPoolSize            = 2
 	delayQueueSize            = 5000
+	depositTxnHashCacheSize   = 1_500
 )
 
 type BlockchainService struct {
@@ -33,6 +36,7 @@ type BlockchainService struct {
 	appCoinStatusConfirmQueue chan [2]common.Address
 	workerPool                *workerpool.WorkerPool
 	delayQueue                *myqueue.DelayQueue
+	depositTxnHashCache       *cache.Cache
 }
 
 func NewBlockchainService(
@@ -46,6 +50,10 @@ func NewBlockchainService(
 		appCoinStatusConfirmQueue: make(chan [2]common.Address, statusConfirmQueueSize),
 		workerPool:                workerpool.New(workerPoolSize),
 		delayQueue:                myqueue.NewDelayQueue(delayQueueSize),
+
+		// Create a deposit transaction hashcache with a default expiration time of 5 minutes,
+		// and which purges expired items every 10 minutes
+		depositTxnHashCache: cache.New(5*time.Minute, 10*time.Minute),
 	}
 
 	lruCache, err := lru.New(signatureAddressCacheSize)
@@ -57,6 +65,9 @@ func NewBlockchainService(
 	if err := bs.initAppCoins(); err != nil {
 		return nil, errors.WithMessage(err, "failed to initialize APP coins")
 	}
+
+	go bs.delayQueue.Poll()
+	go bs.Deposit()
 
 	return bs, nil
 }

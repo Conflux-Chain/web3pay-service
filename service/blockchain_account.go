@@ -27,7 +27,7 @@ func (svc *BlockchainService) DeleteAccountStatus(appCoin, address common.Addres
 
 // UpdateAccountStatus updates APP coin status (balance, frozen status etc.,) of specific address.
 func (svc *BlockchainService) UpdateAccountStatus(
-	appCoin, address common.Address, balance *big.Int, frozen, block *int64) (*model.AppCoinAccount, error) {
+	appCoin, address common.Address, balance *big.Int, frozen *int64, block *int64) (*model.AppCoinAccount, error) {
 	lockKey := util.MutexKey(appCoin.String() + address.String())
 	util.KLock(lockKey)
 	defer util.KUnlock(lockKey)
@@ -150,5 +150,32 @@ func (svc *BlockchainService) DeductAccountBalance(appCoin, address common.Addre
 	}
 
 	account.IncreaseFee(amount)
+	return true, nil
+}
+
+// IncreaseAccountBalance increases APP coin balance of specific account.
+func (svc *BlockchainService) IncreaseAccountBalance(appCoin, address common.Address, amount *big.Int, block int64) (bool, error) {
+	lockKey := util.MutexKey(appCoin.String() + address.String())
+	util.KLock(lockKey)
+	defer util.KUnlock(lockKey)
+
+	account, ok, err := svc.memStore.GetAccount(appCoin, address)
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to get APP coin account")
+	}
+
+	if !ok {
+		return false, nil
+	}
+
+	if !account.IsConfirmed() { // not confirmed yet?
+		return false, nil
+	}
+
+	if account.ConfirmedBlock >= block { // stale block?
+		return false, nil
+	}
+
+	account.Balance = account.Balance.Add(decimal.NewFromBigInt(amount, 0))
 	return true, nil
 }

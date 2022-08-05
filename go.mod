@@ -13,6 +13,7 @@ require (
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/openweb3/go-rpc-provider v0.2.8
 	github.com/openweb3/web3go v0.2.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/shopspring/decimal v1.3.1
 	github.com/sirupsen/logrus v1.8.1

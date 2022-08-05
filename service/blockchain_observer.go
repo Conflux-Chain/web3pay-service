@@ -20,7 +20,9 @@ func (bs *BlockchainService) StatusConfirmQueue() <-chan [2]common.Address {
 	return bs.appCoinStatusConfirmQueue
 }
 
-func (bs *BlockchainService) OnConfirmStatus(coin, addr common.Address, balance *big.Int, frozen, block int64) error {
+func (bs *BlockchainService) OnConfirmStatus(
+	coin, addr common.Address, balance *big.Int, frozen, block int64,
+) error {
 	_, err := bs.UpdateAccountStatus(coin, addr, balance, &frozen, &block)
 	return err
 }
@@ -67,11 +69,11 @@ func (bs *BlockchainService) OnMinted(event *contract.APPCoinMinted) error {
 		Amount:      event.Amount,
 		TxHash:      event.Raw.TxHash,
 		BlockHash:   event.Raw.BlockHash,
-		BlockNumber: event.Raw.BlockNumber,
+		BlockNumber: int64(event.Raw.BlockNumber),
 		SubmitAt:    time.Now(),
 	}
 
-	return bs.Deposit(depositReq)
+	return bs.DepositPending(depositReq)
 }
 
 func (bs *BlockchainService) OnFrozen(event *contract.APPCoinFrozen) error {
