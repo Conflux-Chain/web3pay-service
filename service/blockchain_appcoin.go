@@ -70,16 +70,18 @@ func (svc *BlockchainService) GetAppCoinResourceWithId(
 	}
 
 	resrc, ok := appCoin.Resources[resourceId]
-	if !ok {
-		if resourceId != defaultResourceId { // not existed?
-			// use default resource
-			return svc.GetAppCoinResourceWithId(coin, defaultResourceId)
-		}
-
-		return nil, model.ErrAppCoinResourceNotFound
+	if ok {
+		return &resrc, nil
 	}
 
-	return &resrc, nil
+	if resourceId != defaultResourceId { // retry default resource
+		resrc, ok = appCoin.Resources[defaultResourceId]
+		if ok {
+			return &resrc, nil
+		}
+	}
+
+	return nil, model.ErrAppCoinResourceNotFound
 }
 
 func (svc *BlockchainService) GetAppCoinOwner(coin common.Address) (*common.Address, error) {
