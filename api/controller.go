@@ -33,14 +33,14 @@ func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
 
 	ctx := hc.r.Context()
 	reqId := requestIdFromContext(ctx)
-	contractAddr := contractAddrFromContext(ctx)
-	customerAddr := customerAddrFromContext(ctx)
+	contract := contractAddrFromContext(ctx)
+	customer := customerAddrFromContext(ctx)
 
 	chargeReq := &service.ChargeRequest{
-		ResourceId:   cr.ResourceId,
-		DryRun:       cr.DryRun,
-		AppCoinAddr:  contractAddr,
-		CustomerAddr: customerAddr,
+		ResourceId: cr.ResourceId,
+		DryRun:     cr.DryRun,
+		AppCoin:    contract,
+		Customer:   customer,
 	}
 
 	logger := logrus.WithFields(logrus.Fields{

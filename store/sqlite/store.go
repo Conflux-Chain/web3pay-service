@@ -1,9 +1,13 @@
 package sqlite
 
 import (
+	"math/big"
+	"time"
+
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store"
 	"github.com/pkg/errors"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -32,10 +36,25 @@ func (ms *SqliteStore) Close() error {
 	}
 }
 
-func (ms *SqliteStore) GetBill(coin, addr string) (*model.Bill, bool, error) {
+func (ms *SqliteStore) GetBillFee(coin, addr string) (*big.Int, error) {
+	var bills []*model.Bill
+
+	if err := ms.Find(&bills, "coin = ? AND address = ?", coin, addr).Error; err != nil {
+		return nil, err
+	}
+
+	var totalFees decimal.Decimal
+	for i := range bills {
+		totalFees = totalFees.Add(bills[i].Fee)
+	}
+
+	return totalFees.BigInt(), nil
+}
+
+func (ms *SqliteStore) GetBill(coin, addr string, status int) (*model.Bill, bool, error) {
 	bill := &model.Bill{}
 
-	err := ms.First(bill, "coin = ? AND address = ? AND status = 0", coin, addr).Error
+	err := ms.First(bill, "coin = ? AND address = ? AND status = ?", coin, addr, status).Error
 	if ms.IsRecordNotFound(err) {
 		return nil, false, nil
 	}
@@ -45,4 +64,35 @@ func (ms *SqliteStore) GetBill(coin, addr string) (*model.Bill, bool, error) {
 	}
 
 	return bill, true, nil
+}
+
+func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) (*model.Bill, error) {
+	bill, existed, err := ms.GetBill(coin, addr, model.BillStatusCreated)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to load bill")
+	}
+
+	if !existed { // insert
+		bill = &model.Bill{
+			Coin:      coin,
+			Address:   addr,
+			Fee:       decimal.NewFromBigInt(fee, 0),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		if err := tx.Create(bill).Error; err != nil {
+			return nil, errors.WithMessage(err, "failed to create bill")
+		}
+
+		return bill, nil
+	}
+
+	// update
+	bill.Fee = bill.Fee.Add(decimal.NewFromBigInt(fee, 0))
+	if err := tx.Where("id = ?", bill.ID).Update("fee", bill.Fee).Error; err != nil {
+		return nil, errors.WithMessage(err, "failed to update bill")
+	}
+
+	return bill, err
 }

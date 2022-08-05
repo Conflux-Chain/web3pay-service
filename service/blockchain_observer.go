@@ -20,8 +20,8 @@ func (bs *BlockchainService) StatusConfirmQueue() <-chan [2]common.Address {
 	return bs.appCoinStatusConfirmQueue
 }
 
-func (bs *BlockchainService) OnConfirmStatus(coin, addr common.Address, balance, frozen int64, block int64) error {
-	_, err := bs.UpdateAccountStatus(coin, addr, &balance, &frozen, &block)
+func (bs *BlockchainService) OnConfirmStatus(coin, addr common.Address, balance *big.Int, frozen, block int64) error {
+	_, err := bs.UpdateAccountStatus(coin, addr, balance, &frozen, &block)
 	return err
 }
 
@@ -57,8 +57,21 @@ func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED) 
 }
 
 func (bs *BlockchainService) OnMinted(event *contract.APPCoinMinted) error {
-	// TODO
-	return nil
+	if event.Amount.Cmp(big.NewInt(0)) == 0 {
+		return nil
+	}
+
+	depositReq := &DepositRequest{
+		Coin:        event.Raw.Address,
+		Address:     event.To,
+		Amount:      event.Amount,
+		TxHash:      event.Raw.TxHash,
+		BlockHash:   event.Raw.BlockHash,
+		BlockNumber: event.Raw.BlockNumber,
+		SubmitAt:    time.Now(),
+	}
+
+	return bs.Deposit(depositReq)
 }
 
 func (bs *BlockchainService) OnFrozen(event *contract.APPCoinFrozen) error {
@@ -104,7 +117,7 @@ func (bs *BlockchainService) OnResourceChanged(event *contract.APPCoinResourceCh
 }
 
 func (bs *BlockchainService) OnReorgRevert(revertToBlock int64) error {
-	for {
+	for { // endless retry unless success
 		err := bs.memStore.DeleteAccountsAfterBlock(revertToBlock)
 		if err == nil {
 			break

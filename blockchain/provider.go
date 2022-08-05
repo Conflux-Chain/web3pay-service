@@ -119,15 +119,15 @@ func (p *Provider) GetAppCoinFrozenStatus(
 }
 
 func (p *Provider) GetAppCoinBalanceAndFrozenStatus(
-	callOpts *bind.CallOpts, coin, address common.Address) (int64, int64, error) {
+	callOpts *bind.CallOpts, coin, address common.Address) (*big.Int, int64, error) {
 	balance, err := p.GetAppCoinBalance(callOpts, coin, address)
 	if err != nil {
-		return 0, 0, errors.WithMessage(err, "failed to get balance")
+		return nil, 0, errors.WithMessage(err, "failed to get balance")
 	}
 
 	frozen, err := p.GetAppCoinFrozenStatus(callOpts, coin, address)
 	if err != nil {
-		return 0, 0, errors.WithMessage(err, "failed to get frozen status")
+		return nil, 0, errors.WithMessage(err, "failed to get frozen status")
 	}
 
 	return balance, frozen, err
@@ -135,10 +135,10 @@ func (p *Provider) GetAppCoinBalanceAndFrozenStatus(
 
 // GetAppCoinBalance gets APP coin balance for specific address.
 func (p *Provider) GetAppCoinBalance(
-	callOpts *bind.CallOpts, coin, address common.Address) (int64, error) {
+	callOpts *bind.CallOpts, coin, address common.Address) (*big.Int, error) {
 	appCoinContract, err := p.GetAppCoinContract(coin)
 	if err != nil {
-		return 0, errors.WithMessage(err, "failed to get APP coin contract")
+		return nil, errors.WithMessage(err, "failed to get APP coin contract")
 	}
 
 	balance, err := appCoinContract.BalanceOf(callOpts, address)
@@ -147,10 +147,10 @@ func (p *Provider) GetAppCoinBalance(
 			"coin": coin, "address": address,
 		}).WithError(err).Info("Failed to get APP coin balance")
 
-		return 0, errors.WithMessage(err, "failed to get APP coin balance")
+		return nil, errors.WithMessage(err, "failed to get APP coin balance")
 	}
 
-	return balance.Int64(), nil
+	return balance, nil
 }
 
 // GetAppCoinContractOwner gets APP coin contract owner.

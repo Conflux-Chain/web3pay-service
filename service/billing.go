@@ -1,107 +1,135 @@
 package service
 
 import (
-	"time"
+	"fmt"
+	"math/big"
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
+)
+
+const (
+	KeyBillingChargeLocker = util.MutexKey("BillingChargeLocker")
 )
 
 type ChargeRequest struct {
-	ResourceId   string
-	DryRun       bool
-	AppCoinAddr  common.Address
-	CustomerAddr common.Address
+	ResourceId string
+	DryRun     bool
+	AppCoin    common.Address
+	Customer   common.Address
 }
 
 type ChargeReceipt struct {
 	ResourceId string
-	Fee        uint64
+	Fee        string
 }
 
 type BillingService struct {
-	chainSvc *BlockchainService
-	store    *sqlite.SqliteStore
+	chainSvc    *BlockchainService
+	sqliteStore *sqlite.SqliteStore
+	// map{ bill ID => map{ resource ID = > API call times } }
+	billingStatements map[uint64]map[string]uint64
 }
 
-func NewBillingService(store *sqlite.SqliteStore, chainSvc *BlockchainService) *BillingService {
+func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainService) *BillingService {
 	return &BillingService{
-		store: store, chainSvc: chainSvc,
+		sqliteStore:       sqliteStore,
+		chainSvc:          chainSvc,
+		billingStatements: make(map[uint64]map[string]uint64),
 	}
 }
 
 func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*ChargeReceipt, error) {
-	resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.AppCoinAddr, req.ResourceId)
+	logger := logrus.WithField("request", req)
+
+	resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.AppCoin, req.ResourceId)
 	if err != nil {
+		logger.WithError(err).Debug("Billing charge failed to retrieve APP coin resource")
 		return nil, err
 	}
 
-	appCoinAccount, err := bs.chainSvc.GetAccountStatus(req.AppCoinAddr, req.CustomerAddr)
+	fee := big.NewInt(int64(resource.Weight))
+	logger = logger.WithField("fee", fee.String())
+
+	if fee.Cmp(big.NewInt(0)) <= 0 { // no fee charged
+		logger.WithError(err).Debug("Billing charge skipped with no fee to be charged")
+
+		return &ChargeReceipt{
+			ResourceId: resource.ResourceId,
+			Fee:        fmt.Sprintf("%v", fee.String()),
+		}, nil
+	}
+
+	// get account status
+	appCoinAccount, err := bs.chainSvc.GetOrFetchAccountStatus(req.AppCoin, req.Customer)
 	if err != nil {
+		logger.WithError(err).Debug("Billing charge failed to get account status")
 		return nil, err
 	}
+
+	logger = logger.WithField("account", appCoinAccount)
 
 	// account frozen?
 	if appCoinAccount.IsFrozen() {
+		logger.Debug("Billing charge skipped due to customer account frozen")
 		return nil, model.ErrAccountAddrFrozen
 	}
 
 	// insufficient balance?
-	if int64(resource.Weight) > appCoinAccount.TotalBalance() {
+	if appCoinAccount.TotalBalance().Cmp(fee) < 0 {
+		logger.Debug("Billing charge skipped due to insufficient balance")
 		return nil, model.ErrInsufficentBalance
 	}
 
 	if req.DryRun { // for simulation only?
+		logger.Debug("Billing charge skipped for dry run")
 		return &ChargeReceipt{
 			ResourceId: resource.ResourceId,
-			Fee:        uint64(resource.Weight),
+			Fee:        fmt.Sprintf("%v", fee.String()),
 		}, nil
 	}
 
-	bill := model.Bill{
-		Coin:      appCoinAccount.Coin,
-		Address:   appCoinAccount.Address,
-		Fee:       int64(resource.Weight),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
+	util.KLock(KeyBillingChargeLocker)
+	defer util.KUnlock(KeyBillingChargeLocker)
 
-	logger := logrus.WithFields(logrus.Fields{
-		"statement": bill,
-		"resource":  resource,
-		"account":   appCoinAccount,
-	})
-
-	// TODO: need some benchmarking here in case of poor performance.
-	if err := bs.store.Transaction(func(tx *gorm.DB) error {
-		res := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "coin"}, {Name: "address"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"fee":        gorm.Expr("fee + ?", resource.Weight),
-				"updated_at": time.Now(),
-			}),
-		}).Create(&bill)
-
-		if err := res.Error; err != nil {
-			logger.WithError(err).Error("Failed to upsert bill")
-			return errors.WithMessage(err, "failed to upsert bill")
+	coin, addr := appCoinAccount.Coin, appCoinAccount.Address
+	if err = bs.sqliteStore.Transaction(func(tx *gorm.DB) error {
+		bill, err := bs.sqliteStore.UpsertBill(tx, coin, addr, fee)
+		if err != nil {
+			logger.WithError(err).Error("Billing charge failed to upsert bill")
+			return err
 		}
 
-		// TODO add billing statements
+		deducted, err := bs.chainSvc.DeductAccountBalance(req.AppCoin, req.Customer, fee)
+		if err != nil {
+			logger.WithError(err).Warn("Billing charge failed to deduct account balance")
+			return err
+		}
 
-		return bs.chainSvc.DeductAccountBalance(req.AppCoinAddr, req.CustomerAddr, int64(resource.Weight))
+		if deducted {
+			bs.recordApiCallOnce(bill.ID, resource.ResourceId)
+		}
+
+		return nil
 	}); err != nil {
 		return nil, err
 	}
 
 	return &ChargeReceipt{
 		ResourceId: resource.ResourceId,
-		Fee:        uint64(resource.Weight),
+		Fee:        fee.String(),
 	}, nil
+}
+
+func (bs *BillingService) recordApiCallOnce(billID uint64, resourceId string) {
+	if _, ok := bs.billingStatements[billID]; !ok {
+		bs.billingStatements[billID] = make(map[string]uint64)
+	}
+
+	bs.billingStatements[billID][resourceId]++
 }
