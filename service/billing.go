@@ -53,7 +53,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 		return nil, err
 	}
 
-	fee := big.NewInt(int64(resource.Weight))
+	fee := resource.Weight
 	logger = logger.WithField("fee", fee.String())
 
 	if fee.Cmp(big.NewInt(0)) <= 0 { // no fee charged

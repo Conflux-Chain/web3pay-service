@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -142,6 +143,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	}
 
 	// build log filters
+	// TODO: need airdrop contract address?
 	filterAddrs := []common.Address{m.ControllerAddress}
 	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
 
@@ -166,14 +168,15 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 			return false, nil
 		}
 
-		// handle controller or APP coin contract events
+		// handle contract events
 		eventCategory, consumed, err := "", false, (error)(nil)
 
-		if logs[i].Address == m.ControllerAddress {
-			eventCategory = "controller"
+		switch {
+		case logs[i].Address == m.ControllerAddress: // controller event
+			eventCategory = "Controller"
 			consumed, err = m.handleControllerEvent(&logs[i])
-		} else {
-			eventCategory = "appCoin"
+		default: // TODO: distinguish between APP coin and airdrop
+			eventCategory = "AppCoin"
 			consumed, err = m.handleAppCoinEvent(&logs[i])
 		}
 
@@ -233,6 +236,26 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	return int64(syncBlockNum) == ceilBlockNumber, nil
 }
 
+func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
+	airdropAbi, err := contract.AirdropMetaData.GetAbi()
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to get airdrop contract ABI")
+	}
+
+	// `Drop` event concerned only
+	airdropDropEventId := airdropAbi.Events[contract.EventAirdropDrop].ID
+	if log.Topics[0] != airdropDropEventId {
+		return false, nil
+	}
+
+	eventAirdropDrop, err := contract.UnpackAirdropDrop(airdropAbi, log)
+	if err != nil {
+		return false, err
+	}
+
+	return true, m.contractEventObserver.OnDrop(eventAirdropDrop)
+}
+
 func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
 	if err != nil {
@@ -242,10 +265,10 @@ func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 	var event string
 
 	switch log.Topics[0] {
-	case appCoinAbi.Events[contract.EventAppCoinMinted].ID:
-		// minted
-		event = contract.EventAppCoinMinted
-		err = m.handleAppCoinMinted(appCoinAbi, log)
+	case appCoinAbi.Events[contract.EventAppCoinTransferSingle].ID:
+		// transfer
+		event = contract.EventAppCoinTransferSingle
+		err = m.handleAppCoinTransferSingle(appCoinAbi, log)
 	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID:
 		// frozen
 		event = contract.EventAppCoinFrozen
@@ -301,13 +324,17 @@ func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error
 	return m.contractEventObserver.OnFrozen(eventAppCoinFrozen)
 }
 
-func (m *Monitor) handleAppCoinMinted(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinMinted, err := contract.UnpackAppCoinMinted(appCoinAbi, log)
+func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) error {
+	eventAppCoinTransfer, err := contract.UnpackAPPCoinTransferSingle(appCoinAbi, log)
 	if err != nil {
 		return err
 	}
 
-	return m.contractEventObserver.OnMinted(eventAppCoinMinted)
+	if util.IsZeroAddress(eventAppCoinTransfer.From) { // minted event?
+		return m.contractEventObserver.OnTransfer(eventAppCoinTransfer)
+	}
+
+	return nil
 }
 
 func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {

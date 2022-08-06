@@ -58,7 +58,7 @@ func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED) 
 	return nil
 }
 
-func (bs *BlockchainService) OnMinted(event *contract.APPCoinMinted) error {
+func (bs *BlockchainService) OnDrop(event *contract.AirdropDrop) error {
 	if event.Amount.Cmp(big.NewInt(0)) == 0 {
 		return nil
 	}
@@ -67,6 +67,24 @@ func (bs *BlockchainService) OnMinted(event *contract.APPCoinMinted) error {
 		Coin:        event.Raw.Address,
 		Address:     event.To,
 		Amount:      event.Amount,
+		TxHash:      event.Raw.TxHash,
+		BlockHash:   event.Raw.BlockHash,
+		BlockNumber: int64(event.Raw.BlockNumber),
+		SubmitAt:    time.Now(),
+	}
+
+	return bs.DepositPending(depositReq)
+}
+
+func (bs *BlockchainService) OnTransfer(event *contract.APPCoinTransferSingle) error {
+	if event.Value.Cmp(big.NewInt(0)) == 0 {
+		return nil
+	}
+
+	depositReq := &DepositRequest{
+		Coin:        event.Raw.Address,
+		Address:     event.To,
+		Amount:      event.Value,
 		TxHash:      event.Raw.TxHash,
 		BlockHash:   event.Raw.BlockHash,
 		BlockNumber: int64(event.Raw.BlockNumber),

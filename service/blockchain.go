@@ -51,7 +51,7 @@ func NewBlockchainService(
 		workerPool:                workerpool.New(workerPoolSize),
 		delayQueue:                myqueue.NewDelayQueue(delayQueueSize),
 
-		// Create a deposit transaction hashcache with a default expiration time of 5 minutes,
+		// Create a deposit transaction hash cache with a default expiration time of 5 minutes,
 		// and which purges expired items every 10 minutes
 		depositTxnHashCache: cache.New(5*time.Minute, 10*time.Minute),
 	}
