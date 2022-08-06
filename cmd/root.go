@@ -10,6 +10,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/Conflux-Chain/web3pay-service/util"
+	"github.com/Conflux-Chain/web3pay-service/worker"
 	"github.com/spf13/cobra"
 )
 
@@ -43,8 +44,16 @@ func start(cmd *cobra.Command, args []string) {
 	// monitor
 	chainMonitor := blockchain.MustNewMonitor(chainOpsProvider, serviceFactory.Blockchain)
 
+	// worker
+	chainWorker := worker.NewBlockchainWorker(
+		chainOpsProvider, sqliteStore, serviceFactory.Billing, serviceFactory.Blockchain,
+	)
+
 	// start monitor server
 	go chainMonitor.Sync()
+
+	// start blockchain worker
+	go chainWorker.Run()
 
 	// start RPC server
 	api.MustServe(serviceFactory)
