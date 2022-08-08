@@ -11,7 +11,8 @@ var (
 
 	// event names
 	EventControllerAppCreated   = "APP_CREATED"
-	EventAppCoinMinted          = "Minted"
+	EventAirdropDrop            = "Drop"
+	EventAppCoinTransferSingle  = "TransferSingle"
 	EventAppCoinFrozen          = "Frozen"
 	EventAppCointWithdraw       = "Withdraw"
 	EventAppCoinResourceChanged = "ResourceChanged"
@@ -24,9 +25,16 @@ func UnpackControllerAPPCREATED(ctrlAbi *abi.ABI, log *types.Log) (*ControllerAP
 	return eventObj, err
 }
 
-func UnpackAppCoinMinted(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinMinted, error) {
-	eventObj := new(APPCoinMinted)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCoinMinted, log)
+func UnpackAPPCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinTransferSingle, error) {
+	eventObj := new(APPCoinTransferSingle)
+	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCoinTransferSingle, log)
+
+	return eventObj, err
+}
+
+func UnpackAirdropDrop(airdropAbi *abi.ABI, log *types.Log) (*AirdropDrop, error) {
+	eventObj := new(AirdropDrop)
+	err := unpackLogEventData(eventObj, airdropAbi, EventAirdropDrop, log)
 
 	return eventObj, err
 }

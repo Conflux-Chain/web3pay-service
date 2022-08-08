@@ -36,7 +36,7 @@ type ControllerAppInfo struct {
 
 // ControllerMetaData contains all meta data concerning the Controller contract.
 var ControllerMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"api_\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"addr\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"appOwner\",\"type\":\"address\"}],\"name\":\"APP_CREATED\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"api\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"appBase\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"appMapping\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"name_\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"symbol_\",\"type\":\"string\"}],\"name\":\"createApp\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"offset\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"listApp\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"},{\"internalType\":\"uint256\",\"name\":\"total\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"creator_\",\"type\":\"address\"},{\"internalType\":\"uint32\",\"name\":\"offset\",\"type\":\"uint32\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"listAppByCreator\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"addr\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"blockTime\",\"type\":\"uint256\"}],\"internalType\":\"structController.AppInfo[]\",\"name\":\"apps\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"total\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"nextId\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"api_\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"appBase_\",\"type\":\"address\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"addr\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"appOwner\",\"type\":\"address\"}],\"name\":\"APP_CREATED\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"address\",\"name\":\"previousOwner\",\"type\":\"address\"},{\"indexed\":true,\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"OwnershipTransferred\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"api\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"appBase\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"appMapping\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"from\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"to\",\"type\":\"address\"}],\"name\":\"changeAppOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"string\",\"name\":\"name_\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"symbol_\",\"type\":\"string\"},{\"internalType\":\"string\",\"name\":\"description_\",\"type\":\"string\"},{\"internalType\":\"uint256\",\"name\":\"defaultWeight\",\"type\":\"uint256\"}],\"name\":\"createApp\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"offset\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"listApp\",\"outputs\":[{\"internalType\":\"address[]\",\"name\":\"\",\"type\":\"address[]\"},{\"internalType\":\"uint256\",\"name\":\"total\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"creator_\",\"type\":\"address\"},{\"internalType\":\"uint32\",\"name\":\"offset\",\"type\":\"uint32\"},{\"internalType\":\"uint256\",\"name\":\"limit\",\"type\":\"uint256\"}],\"name\":\"listAppByCreator\",\"outputs\":[{\"components\":[{\"internalType\":\"address\",\"name\":\"addr\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"blockTime\",\"type\":\"uint256\"}],\"internalType\":\"structController.AppInfo[]\",\"name\":\"apps\",\"type\":\"tuple[]\"},{\"internalType\":\"uint256\",\"name\":\"total\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"nextId\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"owner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"renounceOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"transferOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]",
 }
 
 // ControllerABI is the input ABI used to generate the binding from.
@@ -417,25 +417,46 @@ func (_Controller *ControllerCallerSession) Owner() (common.Address, error) {
 	return _Controller.Contract.Owner(&_Controller.CallOpts)
 }
 
-// CreateApp is a paid mutator transaction binding the contract method 0xb3a76683.
+// ChangeAppOwner is a paid mutator transaction binding the contract method 0xae092bd6.
 //
-// Solidity: function createApp(string name_, string symbol_) returns()
-func (_Controller *ControllerTransactor) CreateApp(opts *bind.TransactOpts, name_ string, symbol_ string) (*types.Transaction, error) {
-	return _Controller.contract.Transact(opts, "createApp", name_, symbol_)
+// Solidity: function changeAppOwner(address from, address to) returns()
+func (_Controller *ControllerTransactor) ChangeAppOwner(opts *bind.TransactOpts, from common.Address, to common.Address) (*types.Transaction, error) {
+	return _Controller.contract.Transact(opts, "changeAppOwner", from, to)
 }
 
-// CreateApp is a paid mutator transaction binding the contract method 0xb3a76683.
+// ChangeAppOwner is a paid mutator transaction binding the contract method 0xae092bd6.
 //
-// Solidity: function createApp(string name_, string symbol_) returns()
-func (_Controller *ControllerSession) CreateApp(name_ string, symbol_ string) (*types.Transaction, error) {
-	return _Controller.Contract.CreateApp(&_Controller.TransactOpts, name_, symbol_)
+// Solidity: function changeAppOwner(address from, address to) returns()
+func (_Controller *ControllerSession) ChangeAppOwner(from common.Address, to common.Address) (*types.Transaction, error) {
+	return _Controller.Contract.ChangeAppOwner(&_Controller.TransactOpts, from, to)
 }
 
-// CreateApp is a paid mutator transaction binding the contract method 0xb3a76683.
+// ChangeAppOwner is a paid mutator transaction binding the contract method 0xae092bd6.
 //
-// Solidity: function createApp(string name_, string symbol_) returns()
-func (_Controller *ControllerTransactorSession) CreateApp(name_ string, symbol_ string) (*types.Transaction, error) {
-	return _Controller.Contract.CreateApp(&_Controller.TransactOpts, name_, symbol_)
+// Solidity: function changeAppOwner(address from, address to) returns()
+func (_Controller *ControllerTransactorSession) ChangeAppOwner(from common.Address, to common.Address) (*types.Transaction, error) {
+	return _Controller.Contract.ChangeAppOwner(&_Controller.TransactOpts, from, to)
+}
+
+// CreateApp is a paid mutator transaction binding the contract method 0x4b0ec5ae.
+//
+// Solidity: function createApp(string name_, string symbol_, string description_, uint256 defaultWeight) returns()
+func (_Controller *ControllerTransactor) CreateApp(opts *bind.TransactOpts, name_ string, symbol_ string, description_ string, defaultWeight *big.Int) (*types.Transaction, error) {
+	return _Controller.contract.Transact(opts, "createApp", name_, symbol_, description_, defaultWeight)
+}
+
+// CreateApp is a paid mutator transaction binding the contract method 0x4b0ec5ae.
+//
+// Solidity: function createApp(string name_, string symbol_, string description_, uint256 defaultWeight) returns()
+func (_Controller *ControllerSession) CreateApp(name_ string, symbol_ string, description_ string, defaultWeight *big.Int) (*types.Transaction, error) {
+	return _Controller.Contract.CreateApp(&_Controller.TransactOpts, name_, symbol_, description_, defaultWeight)
+}
+
+// CreateApp is a paid mutator transaction binding the contract method 0x4b0ec5ae.
+//
+// Solidity: function createApp(string name_, string symbol_, string description_, uint256 defaultWeight) returns()
+func (_Controller *ControllerTransactorSession) CreateApp(name_ string, symbol_ string, description_ string, defaultWeight *big.Int) (*types.Transaction, error) {
+	return _Controller.Contract.CreateApp(&_Controller.TransactOpts, name_, symbol_, description_, defaultWeight)
 }
 
 // RenounceOwnership is a paid mutator transaction binding the contract method 0x715018a6.
