@@ -355,7 +355,9 @@ func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status u
 
 		res := worker.sqliteStore.Model(&model.Bill{}).Where("id = ?", tasks[i].ID).Updates(updates)
 		if err := res.Error; err != nil {
-			logrus.WithField("task", tasks[i]).Error("Blockchain worker failed to update bill task status")
+			logrus.WithField("task", tasks[i]).
+				WithError(err).
+				Error("Blockchain worker failed to update bill task status")
 		}
 	}
 }
