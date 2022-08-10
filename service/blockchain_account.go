@@ -130,8 +130,27 @@ func (svc *BlockchainService) GetOrFetchAccountStatus(appCoin, address common.Ad
 	return account, nil
 }
 
-// DeductAccountBalance deducts APP coin balance of specific account.
-func (svc *BlockchainService) DeductAccountBalance(appCoin, address common.Address, amount *big.Int) (bool, error) {
+// WriteOffAccountFee writes off APP coin fee from specific account.
+func (svc *BlockchainService) WriteOffAccountFee(appCoin, address common.Address, amount *big.Int) (bool, error) {
+	lockKey := util.MutexKey(appCoin.String() + address.String())
+	util.KLock(lockKey)
+	defer util.KUnlock(lockKey)
+
+	account, ok, err := svc.memStore.GetAccount(appCoin, address)
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to get APP coin account")
+	}
+
+	if !ok {
+		return false, nil
+	}
+
+	account.DecreaseFee(amount)
+	return true, nil
+}
+
+// WithholdAccountFee withholds APP coin fee from specific account.
+func (svc *BlockchainService) WithholdAccountFee(appCoin, address common.Address, amount *big.Int) (bool, error) {
 	lockKey := util.MutexKey(appCoin.String() + address.String())
 	util.KLock(lockKey)
 	defer util.KUnlock(lockKey)

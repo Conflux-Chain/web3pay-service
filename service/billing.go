@@ -32,15 +32,15 @@ type ChargeReceipt struct {
 type BillingService struct {
 	chainSvc    *BlockchainService
 	sqliteStore *sqlite.SqliteStore
-	// map{ bill ID => map{ resource ID = > API call times } }
-	billingStatements map[uint64]map[string]uint64
+	// map{ bill ID => map{ resource index = > API call times } }
+	billingStatements map[uint64]map[uint32]int64
 }
 
 func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainService) *BillingService {
 	return &BillingService{
 		sqliteStore:       sqliteStore,
 		chainSvc:          chainSvc,
-		billingStatements: make(map[uint64]map[string]uint64),
+		billingStatements: make(map[uint64]map[uint32]int64),
 	}
 }
 
@@ -105,14 +105,14 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 			return err
 		}
 
-		deducted, err := bs.chainSvc.DeductAccountBalance(req.AppCoin, req.Customer, fee)
+		deducted, err := bs.chainSvc.WithholdAccountFee(req.AppCoin, req.Customer, fee)
 		if err != nil {
 			logger.WithError(err).Warn("Billing charge failed to deduct account balance")
 			return err
 		}
 
 		if deducted {
-			bs.recordApiCallOnce(bill.ID, resource.ResourceId)
+			bs.recordApiCallOnce(bill.ID, resource.Index)
 		}
 
 		return nil
@@ -126,10 +126,17 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	}, nil
 }
 
-func (bs *BillingService) recordApiCallOnce(billID uint64, resourceId string) {
+func (bs *BillingService) GetAndDelStatements(billID uint64) map[uint32]int64 {
+	statements := bs.billingStatements[billID]
+	delete(bs.billingStatements, billID)
+
+	return statements
+}
+
+func (bs *BillingService) recordApiCallOnce(billID uint64, resourceIndex uint32) {
 	if _, ok := bs.billingStatements[billID]; !ok {
-		bs.billingStatements[billID] = make(map[string]uint64)
+		bs.billingStatements[billID] = make(map[uint32]int64)
 	}
 
-	bs.billingStatements[billID][resourceId]++
+	bs.billingStatements[billID][resourceIndex]++
 }

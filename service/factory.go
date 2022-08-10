@@ -4,7 +4,6 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
-	"github.com/openweb3/web3go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -13,8 +12,7 @@ type Factory struct {
 	Billing    *BillingService
 }
 
-func MustNewFactory(
-	w3c *web3go.Client, store *sqlite.SqliteStore, memStore *memdb.MemStore, provider *blockchain.Provider) *Factory {
+func MustNewFactory(store *sqlite.SqliteStore, memStore *memdb.MemStore, provider *blockchain.Provider) *Factory {
 	blockchainSvc, err := NewBlockchainService(store, memStore, provider)
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to create blockchain service")
