@@ -85,16 +85,23 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	var successTasks, reconfirmTasks, retryTasks []*BillTask
 
 	for i := range billTasks {
+		logrus.WithField("task", billTasks[i]).
+			Debug("Blockchain worker confirming bill task")
+
 		txnHash := common.HexToHash(billTasks[i].TxnHash)
 		txn, err := worker.provider.TransactionByHash(txnHash)
 		if err != nil {
 			logrus.WithField("task", billTasks[i]).WithError(err).
 				Info("Blockchain worker failed to get txn by hash during confirm")
+
 			reconfirmTasks = append(reconfirmTasks, billTasks[i])
 			continue
 		}
 
 		if txn == nil { // transaction dropped?
+			logrus.WithField("task", billTasks[i]).
+				Debug("Blockchain worker got nil txn for confirming task")
+
 			retryTasks = append(retryTasks, billTasks[i])
 			continue
 		}
@@ -102,9 +109,13 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 		if txn.BlockHash == nil { // transaction pending (not mined or executed)?
 			if time.Now().After(billTasks[i].SubmittedAt.Add(maxPendingAwaitDuration)) { // pending too long?
 				logrus.WithField("task", billTasks[i]).
-					Debug("Blockchain worker retry settlement for long pending txn")
+					Debug("Blockchain worker got timeout pending txn for confirming task")
+
 				retryTasks = append(retryTasks, billTasks[i])
 			} else {
+				logrus.WithField("task", billTasks[i]).
+					Debug("Blockchain worker got pending txn for confirming task")
+
 				reconfirmTasks = append(reconfirmTasks, billTasks[i])
 			}
 
@@ -112,6 +123,11 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 		}
 
 		if txn.Status == nil || *txn.Status != ethtypes.ReceiptStatusSuccessful { // transaction failed?
+			logrus.WithFields(logrus.Fields{
+				"task":      billTasks[i],
+				"txnStatus": txn.Status,
+			}).Debug("Blockchain worker got non-successful txn for confirming task")
+
 			retryTasks = append(retryTasks, billTasks[i])
 			continue
 		}
@@ -126,11 +142,15 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 		}
 
 		if (txn.BlockNumber.Uint64() + minConfirmBlocks) > latestBlock.Uint64() {
+			logrus.WithField("task", billTasks[i]).
+				Debug("Blockchain worker got not enough blocks for confirming task")
+
 			// no enough blocks confirmed?
 			reconfirmTasks = append(reconfirmTasks, billTasks[i])
 			continue
 		}
 
+		logrus.WithField("task", billTasks[i]).Debug("Blockchain worker confirmed txn for task")
 		successTasks = append(successTasks, billTasks[i])
 	}
 
@@ -143,7 +163,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	}
 
 	if len(reconfirmTasks) > 0 {
-		// sleep for a while for re-confirm tasks
+		// wait for a while for re-confirm tasks
 		time.AfterFunc(time.Second, func() {
 			worker.billConfirmQueue <- reconfirmTasks
 		})
