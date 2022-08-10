@@ -9,6 +9,7 @@ require (
 	github.com/gammazero/workerpool v1.1.2
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
+	github.com/gorilla/rpc v1.2.0
 	github.com/hashicorp/go-memdb v1.3.3
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/openweb3/go-rpc-provider v0.2.8
