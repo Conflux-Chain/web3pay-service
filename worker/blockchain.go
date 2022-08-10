@@ -325,7 +325,7 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		// 2. duplicated txn error
 		// 3. network error
 		if err != nil {
-			logrus.WithField("task", tasks).
+			logrus.WithField("tasks", tasks).
 				WithError(err).
 				Debug("Blockchain worker failed to submit batch charge APP coin request")
 			failureTasks = append(failureTasks, tasks...)

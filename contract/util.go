@@ -16,6 +16,9 @@ var (
 	EventAppCoinFrozen          = "Frozen"
 	EventAppCointWithdraw       = "Withdraw"
 	EventAppCoinResourceChanged = "ResourceChanged"
+
+	// method names
+	MethodAppCoinChargeBatch = "chargeBatch"
 )
 
 func UnpackControllerAPPCREATED(ctrlAbi *abi.ABI, log *types.Log) (*ControllerAPPCREATED, error) {
