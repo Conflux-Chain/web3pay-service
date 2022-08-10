@@ -287,7 +287,7 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 			UseDetail: details,
 		})
 
-		task.tryTimes++
+		task.TryTimes++
 	}
 
 	// call batch charge contract method for settlement
