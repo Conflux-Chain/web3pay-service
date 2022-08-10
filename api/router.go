@@ -20,5 +20,8 @@ func newRouter(svcFactory *service.Factory) *mux.Router {
 		Methods("POST").
 		Headers("Content-Type", "application/json")
 
+	// json rpc
+	r.Handle("/", newJsonRpcServer(svcFactory))
+
 	return r
 }

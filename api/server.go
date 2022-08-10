@@ -25,8 +25,6 @@ func MustServe(svcFactory *service.Factory) {
 	var config Config
 	viperutil.MustUnmarshalKey("api", &config)
 
-	// TODO: add JSON-RPC support
-
 	stdSrv = &http.Server{
 		Addr:        config.Endpoint,
 		ReadTimeout: 1 * time.Minute,
