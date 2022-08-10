@@ -12,6 +12,7 @@ const (
 	BillStatusCreated = iota + 1
 	BillStatusSubmitting
 	BillStatusSubmitted
+	BillStatusFailed
 )
 
 // Bill bills to settle on blockchain
@@ -25,6 +26,8 @@ type Bill struct {
 	Fee decimal.Decimal `gorm:"size:128;type:string"`
 	// 0 - created, 1 - submitting, 2 - submitted
 	Status uint8 `gorm:"default:0"`
+	// transaction hash if submitted
+	TxnHash string `gorm:"size:64;type:string"`
 	// create date
 	CreatedAt time.Time
 	// update date
@@ -78,4 +81,8 @@ func (account *AppCoinAccount) IsConfirmed() bool {
 
 func (account *AppCoinAccount) IncreaseFee(delta *big.Int) {
 	account.Fee = account.Fee.Add(decimal.NewFromBigInt(delta, 0))
+}
+
+func (account *AppCoinAccount) DecreaseFee(delta *big.Int) {
+	account.Fee = account.Fee.Sub(decimal.NewFromBigInt(delta, 0))
 }

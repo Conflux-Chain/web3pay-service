@@ -5,10 +5,13 @@ import (
 	"sync"
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go"
 	"github.com/openweb3/web3go/client"
+	"github.com/openweb3/web3go/signers"
+	"github.com/openweb3/web3go/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -24,6 +27,7 @@ const (
 )
 
 type contractBindCallContext struct {
+	signerAddress  common.Address
 	contractClient *web3go.ClientForContract
 	signer         bind.SignerFn
 }
@@ -38,7 +42,16 @@ type Provider struct {
 	referenceBlockNumber int64    // reference block number for ops (eg., sync)
 }
 
-func MustNewProvider(w3c *web3go.Client) *Provider {
+func MustNewProvider() *Provider {
+	// sign manager
+	signerMgr := signers.MustNewSignerManagerByPrivateKeyStrings([]string{stdConf.operatorPrivateKey})
+	signerAddr := signerMgr.List()[0].Address()
+
+	// eth client
+	w3c := util.MustNewEthClientFromViper(func(opt *web3go.ClientOption) {
+		opt.SignerManager = signerMgr
+	})
+
 	latestBlockNumber, err := w3c.Eth.BlockNumber()
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to get latest block number")
@@ -59,6 +72,7 @@ func MustNewProvider(w3c *web3go.Client) *Provider {
 	return &Provider{
 		RpcEthClient: w3c.Eth,
 		bindCallContext: &contractBindCallContext{
+			signerAddress:  signerAddr,
 			contractClient: clientForContract,
 			signer:         singerFn,
 		},
@@ -96,6 +110,25 @@ func (p *Provider) GetAppCoinContract(appCoinAddr common.Address) (*contract.APP
 
 	p.appCoins.Store(appCoinAddr, appCoinCaller)
 	return appCoinCaller, nil
+}
+
+// BatchChargeAppCoinBills batch charges APP coin account bills.
+func (p *Provider) BatchChargeAppCoinBills(
+	opts *bind.TransactOpts, coin common.Address, requests []contract.APPCoinChargeRequest) (*types.Transaction, error) {
+	appCoinContract, err := p.GetAppCoinContract(coin)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+	}
+
+	// bind call context
+	if opts == nil {
+		opts = &bind.TransactOpts{}
+	}
+
+	opts.From = p.bindCallContext.signerAddress
+	opts.Signer = p.bindCallContext.signer
+
+	return appCoinContract.ChargeBatch(opts, requests)
 }
 
 // GetAppCoinFrozenStatus gets APP coin frozen status for specific address.

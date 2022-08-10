@@ -17,18 +17,24 @@ type ethClientConfig struct {
 	MaxConnsPerHost int           `default:"1024"`
 }
 
-func MustNewEthClientFromViper() *web3go.Client {
+func MustNewEthClientFromViper(customOpt ...func(*web3go.ClientOption)) *web3go.Client {
 	var conf ethClientConfig
 	viper.MustUnmarshalKey("eth", &conf)
 
-	eth, err := web3go.NewClientWithOption(conf.Http, web3go.ClientOption{
+	option := web3go.ClientOption{
 		Option: providers.Option{
 			RetryCount:           conf.Retry,
 			RetryInterval:        conf.RetryInterval,
 			RequestTimeout:       conf.RequestTimeout,
 			MaxConnectionPerHost: conf.MaxConnsPerHost,
 		},
-	})
+	}
+
+	if len(customOpt) > 0 {
+		customOpt[0](&option)
+	}
+
+	eth, err := web3go.NewClientWithOption(conf.Http, option)
 
 	if err != nil {
 		logrus.WithError(err).Fatal("Failed to create eth client from viper")
