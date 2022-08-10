@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -85,8 +86,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	var successTasks, reconfirmTasks, retryTasks []*BillTask
 
 	for i := range billTasks {
-		logrus.WithField("task", billTasks[i]).
-			Debug("Blockchain worker confirming bill task")
+		logrus.WithField("task", billTasks[i]).Debug("Blockchain worker confirming bill task")
 
 		txnHash := common.HexToHash(billTasks[i].TxnHash)
 		txn, err := worker.provider.TransactionByHash(txnHash)
@@ -102,6 +102,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 			logrus.WithField("task", billTasks[i]).
 				Debug("Blockchain worker got nil txn for confirming task")
 
+			billTasks[i].Memo = "transaction dropped"
 			retryTasks = append(retryTasks, billTasks[i])
 			continue
 		}
@@ -111,6 +112,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 				logrus.WithField("task", billTasks[i]).
 					Debug("Blockchain worker got timeout pending txn for confirming task")
 
+				billTasks[i].Memo = "transaction pending too long"
 				retryTasks = append(retryTasks, billTasks[i])
 			} else {
 				logrus.WithField("task", billTasks[i]).
@@ -128,6 +130,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 				"txnStatus": txn.Status,
 			}).Debug("Blockchain worker got non-successful txn for confirming task")
 
+			billTasks[i].Memo = fmt.Sprintf("transaction execution failed with status %v", txn.Status)
 			retryTasks = append(retryTasks, billTasks[i])
 			continue
 		}
@@ -222,12 +225,7 @@ func (worker *BlockchainWorker) retryBillTasks(billTasks []*BillTask) {
 
 	// update bill submitted status
 	if len(successTasks) > 0 {
-		err := worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
-		if err != nil {
-			logrus.WithField("updateBillTasks", successTasks).
-				WithError(err).
-				Info("Blockchain worker failed to update bill submitted status during retry")
-		}
+		worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
 
 		// put into confirm queue
 		worker.billConfirmQueue <- successTasks
@@ -247,12 +245,7 @@ func (worker *BlockchainWorker) retryBillTasks(billTasks []*BillTask) {
 
 	// update bill failed status
 	if len(deadTasks) > 0 {
-		err := worker.updateBillTaskStatus(successTasks, model.BillStatusFailed)
-		if err != nil {
-			logrus.WithField("updateBillTasks", successTasks).
-				WithError(err).
-				Info("Blockchain worker failed to update bill failed status during retry")
-		}
+		worker.updateBillTaskStatus(deadTasks, model.BillStatusFailed)
 	}
 
 	if len(retryTasks) > 0 {
@@ -267,12 +260,7 @@ func (worker *BlockchainWorker) settle() {
 
 		// update bill submitted status
 		if len(successTasks) > 0 {
-			err := worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
-			if err != nil {
-				logrus.WithField("updateBillTasks", successTasks).
-					WithError(err).
-					Info("Blockchain worker failed to update bill submitted status")
-			}
+			worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
 
 			// put into confirm queue
 			worker.billConfirmQueue <- successTasks
@@ -328,7 +316,12 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 			logrus.WithField("tasks", tasks).
 				WithError(err).
 				Debug("Blockchain worker failed to submit batch charge APP coin request")
+
 			failureTasks = append(failureTasks, tasks...)
+			for i := range tasks {
+				tasks[i].Memo = err.Error()
+			}
+
 			continue
 		}
 
@@ -347,27 +340,26 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 	return
 }
 
-func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status uint8) error {
-	updateBillIds := []uint64{}
-	for i := range tasks {
-		if tasks[i].Status == status {
-			continue
-		}
-
-		updateBillIds = append(updateBillIds, tasks[i].ID)
-		tasks[i].Status = status
-	}
-
-	if len(updateBillIds) == 0 {
-		return nil
-	}
-
+func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status uint8) {
 	util.KLock(service.KeyBillingChargeLocker)
 	defer util.KUnlock(service.KeyBillingChargeLocker)
 
-	return worker.sqliteStore.Model(&model.Bill{}).
-		Where("id IN ?", updateBillIds).
-		Update("status", status).Error
+	for i := range tasks {
+		tasks[i].Status = status
+
+		updates := map[string]interface{}{
+			"status":   status,
+			"txn_hash": tasks[i].TxnHash,
+			"memo":     tasks[i].Memo,
+		}
+
+		res := worker.sqliteStore.Model(&model.Bill{}).Where("id = ?", tasks[i].ID).Updates(updates)
+		if err := res.Error; err != nil {
+			logrus.WithField("task", tasks[i]).
+				WithError(err).
+				Error("Blockchain worker failed to update bill task status")
+		}
+	}
 }
 
 func (worker *BlockchainWorker) poll() {

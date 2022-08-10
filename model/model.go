@@ -28,6 +28,8 @@ type Bill struct {
 	Status uint8 `gorm:"default:0"`
 	// transaction hash if submitted
 	TxnHash string `gorm:"size:64;type:string"`
+	// memo
+	Memo string `gorm:"size:256;type:string"`
 	// create date
 	CreatedAt time.Time
 	// update date
