@@ -77,6 +77,7 @@ func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) 
 			Coin:      coin,
 			Address:   addr,
 			Fee:       decimal.NewFromBigInt(fee, 0),
+			Status:    model.BillStatusCreated,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
