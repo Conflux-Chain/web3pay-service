@@ -128,6 +128,36 @@ func (p *Provider) BatchChargeAppCoinBills(
 	opts.From = p.bindCallContext.signerAddress
 	opts.Signer = p.bindCallContext.signer
 
+	// estimate gas && gas price
+	gasPrice, err := p.GasPrice()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get gas price")
+	}
+
+	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP coin ABI")
+	}
+
+	data, err := appCoinAbi.Pack(contract.MethodAppCoinChargeBatch, requests)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to pack ABI data")
+	}
+
+	latestBlockNumberOrHash := types.BlockNumberOrHashWithNumber(types.LatestBlockNumber)
+	gas, err := p.EstimateGas(types.CallRequest{
+		From:     &opts.From,
+		To:       &coin,
+		GasPrice: gasPrice,
+		Data:     data,
+	}, &latestBlockNumberOrHash)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to estimate gas")
+	}
+
+	opts.GasPrice = gasPrice
+	opts.GasLimit = gas.Uint64()
+
 	return appCoinContract.ChargeBatch(opts, requests)
 }
 
