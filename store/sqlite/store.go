@@ -91,7 +91,7 @@ func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) 
 
 	// update
 	bill.Fee = bill.Fee.Add(decimal.NewFromBigInt(fee, 0))
-	if err := tx.Where("id = ?", bill.ID).Update("fee", bill.Fee).Error; err != nil {
+	if err := tx.Model(&model.Bill{}).Where("id = ?", bill.ID).Update("fee", bill.Fee).Error; err != nil {
 		return nil, errors.WithMessage(err, "failed to update bill")
 	}
 
