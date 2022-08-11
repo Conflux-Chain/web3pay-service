@@ -138,7 +138,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 		}).Info("Monitor parent hash mismatch detected")
 
 		if err := m.reorgRevert(prevBlockNum); err != nil {
-			logger.WithError(err).Error("Monitor reorg revert due to parent hash mismatch")
+			logger.WithError(err).Info("Monitor failed to reorg revert due to parent hash mismatch")
 			return false, errors.WithMessage(err, "failed to reorg revert")
 		}
 
