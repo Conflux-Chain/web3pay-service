@@ -109,15 +109,15 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	}
 
 	syncBlockNum := (types.BlockNumber)(m.SyncFromBlockNumber)
-	ceilBlockNumber := latestBlockBigInt.Int64() - skipBlocksAheadOfLeatestBlock
+	goAfterBlockNumber := latestBlockBigInt.Int64() - skipBlocksAheadOfLeatestBlock
 
 	logger := logrus.WithFields(logrus.Fields{
-		"latestBlockNumber": latestBlockBigInt.Int64(),
-		"ceilBlockNumber":   ceilBlockNumber,
-		"syncBlockNo":       syncBlockNum,
+		"latestBlockNumber":  latestBlockBigInt.Int64(),
+		"goAfterBlockNumber": goAfterBlockNumber,
+		"syncBlockNo":        syncBlockNum,
 	})
 
-	if m.SyncFromBlockNumber > ceilBlockNumber { // already catched up to ceil
+	if m.SyncFromBlockNumber > goAfterBlockNumber { // already catched up to ceil
 		logger.Debug("Monitor skipped sync due to already catched up")
 		return true, nil
 	}
@@ -132,18 +132,20 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	prevBlockHash, exist := m.blockWindow.getBlockHash(prevBlockNum)
 
 	if exist && block.ParentHash != prevBlockHash { // parent hash not matched
-		err := m.reorgRevert(prevBlockNum)
-
 		logger.WithFields(logrus.Fields{
 			"prevBlockHash":   prevBlockHash,
 			"parentBlockHash": block.ParentHash,
-		}).WithError(err).Info("Monitor reorg revert due to parent hash mismatch")
+		}).Info("Monitor parent hash mismatch detected")
 
-		return false, errors.WithMessage(err, "failed to reorg revert")
+		if err := m.reorgRevert(prevBlockNum); err != nil {
+			logger.WithError(err).Info("Monitor failed to reorg revert due to parent hash mismatch")
+			return false, errors.WithMessage(err, "failed to reorg revert")
+		}
+
+		return false, nil
 	}
 
 	// build log filters
-	// TODO: need airdrop contract address?
 	filterAddrs := []common.Address{m.ControllerAddress}
 	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
 
@@ -165,35 +167,22 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	for i := range logs {
 		if logs[i].BlockHash != block.Hash || logs[i].BlockNumber != block.Number.Uint64() {
 			// block number or hash not matched, chain reorg during fetch? have a retry
-			return false, nil
+			return false, errors.New("mismatched block hash or number of event log")
 		}
 
 		// handle contract events
-		eventCategory, consumed, err := "", false, (error)(nil)
-
+		var err error
 		switch {
 		case logs[i].Address == m.ControllerAddress: // controller event
-			eventCategory = "Controller"
-			consumed, err = m.handleControllerEvent(&logs[i])
-		default: // TODO: distinguish between APP coin and airdrop
-			eventCategory = "AppCoin"
-			consumed, err = m.handleAppCoinEvent(&logs[i])
+			_, err = m.handleControllerEvent(&logs[i])
+		default: // APP coin or airdrop event
+			_, err = m.handleAppCoinEvent(&logs[i])
 		}
 
 		if err != nil {
-			logger.WithFields(logrus.Fields{
-				"log":           logs[i],
-				"eventCategory": eventCategory,
-			}).WithError(err).Info("Monitor failed to handle event log")
-
+			logger.WithField("log", logs[i]).WithError(err).Info("Monitor failed to handle event log")
 			return false, errors.WithMessage(err, "failed to handle event log")
 		}
-
-		logger.WithFields(logrus.Fields{
-			"logIndex":      i,
-			"eventCategory": eventCategory,
-			"consumed":      consumed,
-		}).Debug("Monitor handled event log")
 	}
 
 	if err := m.blockWindow.push(m.SyncFromBlockNumber, block.Hash, block.ParentHash); err != nil {
@@ -233,7 +222,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	}
 
 	m.SyncFromBlockNumber++
-	return int64(syncBlockNum) == ceilBlockNumber, nil
+	return int64(syncBlockNum) == goAfterBlockNumber, nil
 }
 
 func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
@@ -253,7 +242,15 @@ func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
 		return false, err
 	}
 
-	return true, m.contractEventObserver.OnDrop(eventAirdropDrop)
+	logger := logrus.WithField("event", eventAirdropDrop)
+
+	if err := m.contractEventObserver.OnDrop(eventAirdropDrop); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle airdrop event")
+		return false, err
+	}
+
+	logger.Debug("Monitor handled airdrop event")
+	return true, nil
 }
 
 func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
@@ -262,38 +259,27 @@ func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 		return false, errors.WithMessage(err, "failed to get APP coin contract ABI")
 	}
 
-	var event string
-
 	switch log.Topics[0] {
 	case appCoinAbi.Events[contract.EventAppCoinTransferSingle].ID:
 		// transfer
-		event = contract.EventAppCoinTransferSingle
 		err = m.handleAppCoinTransferSingle(appCoinAbi, log)
 	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID:
 		// frozen
-		event = contract.EventAppCoinFrozen
 		err = m.handleAppCoinFrozen(appCoinAbi, log)
 	case appCoinAbi.Events[contract.EventAppCointWithdraw].ID:
 		// withdraw
-		event = contract.EventAppCointWithdraw
 		err = m.handleAppCoinWithdraw(appCoinAbi, log)
 	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID:
 		// resource changed
-		event = contract.EventAppCoinResourceChanged
 		err = m.handleAppCoinResourceChanged(appCoinAbi, log)
-	default: // not concerned
-		return false, nil
+	default: // maybe airdrop event?
+		return m.handleAirdropEvent(log)
 	}
 
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"log": log, "event": event,
-		}).WithError(err).Info("Monitor failed to handle APP coin event")
-
 		return false, err
 	}
 
-	logrus.WithField("event", event).Debug("Monitor handled APP coin event")
 	return true, nil
 }
 
@@ -303,7 +289,15 @@ func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.L
 		return err
 	}
 
-	return m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged)
+	logger := logrus.WithField("event", eventAppCoinResrcChanged)
+
+	if err := m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP coin resource changed event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP coin resource changed event")
+	return nil
 }
 
 func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -312,7 +306,15 @@ func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) err
 		return err
 	}
 
-	return m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw)
+	logger := logrus.WithField("event", eventAppCoinWithdraw)
+
+	if err := m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP coin withdraw event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP coin withdraw event")
+	return nil
 }
 
 func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -321,7 +323,15 @@ func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error
 		return err
 	}
 
-	return m.contractEventObserver.OnFrozen(eventAppCoinFrozen)
+	logger := logrus.WithField("event", eventAppCoinFrozen)
+
+	if err := m.contractEventObserver.OnFrozen(eventAppCoinFrozen); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APPCoin frozen event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APPCoin frozen event")
+	return nil
 }
 
 func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) error {
@@ -330,10 +340,19 @@ func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Lo
 		return err
 	}
 
-	if util.IsZeroAddress(eventAppCoinTransfer.From) { // minted event?
-		return m.contractEventObserver.OnTransfer(eventAppCoinTransfer)
+	logger := logrus.WithField("event", eventAppCoinTransfer)
+
+	if !util.IsZeroAddress(eventAppCoinTransfer.From) { // not a minted event?
+		logger.Debug("Monitor skipped APP coin transfer event due to no minted event")
+		return nil
 	}
 
+	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP coin transfer event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP coin transfer event")
 	return nil
 }
 
@@ -354,14 +373,31 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 		return false, err
 	}
 
+	logger := logrus.WithField("event", eventAppCreated)
+
 	if stdConf.creatorAddr != nil && *stdConf.creatorAddr != eventAppCreated.AppOwner {
 		// not an APP coin by concerned creator
+		logger.Debug("Monitor skipped APPCreated event due to not a concerned creator")
 		return false, nil
 	}
 
 	// add observing for new created APP coin
+	for i := range m.AppCoinAddresses {
+		if m.AppCoinAddresses[i] == eventAppCreated.Addr { // already exists?
+			logger.Debug("Monitor skipped APPCreated event due to already existed")
+			return false, nil
+		}
+	}
+
 	m.AppCoinAddresses = append(m.AppCoinAddresses, eventAppCreated.Addr)
-	return true, m.contractEventObserver.OnAppCreated(eventAppCreated)
+
+	if err := m.contractEventObserver.OnAppCreated(eventAppCreated); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APPCreated event")
+		return false, err
+	}
+
+	logger.Debug("Monitor handled APPCreated event")
+	return true, nil
 }
 
 func (m *Monitor) reorgRevert(revertToBlock int64) error {
