@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/gorilla/rpc"
 	"github.com/gorilla/rpc/json"
@@ -14,7 +15,7 @@ type JrChargeArgs struct {
 }
 
 type JrChargeRely struct {
-	service.ChargeReceipt
+	*model.BusinessError
 }
 
 type JrBillingApi struct {
@@ -45,12 +46,18 @@ func (api *JrBillingApi) Charge(r *http.Request, args *JrChargeArgs, reply *JrCh
 	receipt, err := api.billingSvc.Charge(ctx, chargeReq)
 	if err != nil {
 		logger.WithError(err).Debug("Billing charge failed")
+
+		if bzerr, ok := err.(*model.BusinessError); ok {
+			reply.BusinessError = bzerr
+			return nil
+		}
+
 		return err
 	}
 
-	reply.ChargeReceipt = *receipt
 	logger.WithField("receipt", receipt).Debug("Billing charge done")
 
+	reply.BusinessError = model.ErrNil.WithData(receipt)
 	return nil
 }
 
