@@ -242,9 +242,13 @@ func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
 		return false, err
 	}
 
-	logger := logrus.WithField("event", eventAirdropDrop)
+	logger := logrus.WithFields(logrus.Fields{
+		"airdropTo": eventAirdropDrop.To,
+		"Amount":    eventAirdropDrop.Amount.Int64(),
+		"Reason":    eventAirdropDrop.Reason,
+	})
 
-	if err := m.contractEventObserver.OnDrop(eventAirdropDrop); err != nil {
+	if err := m.contractEventObserver.OnDrop(eventAirdropDrop, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle airdrop event")
 		return false, err
 	}
@@ -289,9 +293,13 @@ func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.L
 		return err
 	}
 
-	logger := logrus.WithField("event", eventAppCoinResrcChanged)
+	logger := logrus.WithFields(logrus.Fields{
+		"resourceId":     eventAppCoinResrcChanged.Id,
+		"resourceWeight": eventAppCoinResrcChanged.Weight.Int64(),
+		"Op":             eventAppCoinResrcChanged.Op,
+	})
 
-	if err := m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged); err != nil {
+	if err := m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle APP coin resource changed event")
 		return err
 	}
@@ -306,9 +314,12 @@ func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) err
 		return err
 	}
 
-	logger := logrus.WithField("event", eventAppCoinWithdraw)
+	logger := logrus.WithFields(logrus.Fields{
+		"withdrawAccount": eventAppCoinWithdraw.Account,
+		"withdrawAmount":  eventAppCoinWithdraw.Amount.Int64(),
+	})
 
-	if err := m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw); err != nil {
+	if err := m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle APP coin withdraw event")
 		return err
 	}
@@ -323,9 +334,9 @@ func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error
 		return err
 	}
 
-	logger := logrus.WithField("event", eventAppCoinFrozen)
+	logger := logrus.WithField("frozenAddress", eventAppCoinFrozen.Addr)
 
-	if err := m.contractEventObserver.OnFrozen(eventAppCoinFrozen); err != nil {
+	if err := m.contractEventObserver.OnFrozen(eventAppCoinFrozen, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle APPCoin frozen event")
 		return err
 	}
@@ -344,15 +355,20 @@ func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Lo
 		return nil
 	}
 
-	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer); err != nil {
-		logrus.WithField("event", eventAppCoinTransfer).
-			WithError(err).
-			Info("Monitor failed to handle APP coin transfer event")
+	logger := logrus.WithFields(logrus.Fields{
+		"transferOperator": eventAppCoinTransfer.Operator,
+		"transferFrom":     eventAppCoinTransfer.From,
+		"transferTo":       eventAppCoinTransfer.To,
+		"transferId":       eventAppCoinTransfer.Id,
+		"transferValue":    eventAppCoinTransfer.Value.Int64(),
+	})
+
+	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP coin transfer event")
 		return err
 	}
 
-	logrus.WithField("event", eventAppCoinTransfer).
-		Debug("Monitor handled APP coin transfer event")
+	logger.Debug("Monitor handled APP coin transfer event")
 	return nil
 }
 
@@ -373,7 +389,9 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 		return false, err
 	}
 
-	logger := logrus.WithField("event", eventAppCreated)
+	logger := logrus.WithFields(logrus.Fields{
+		"AppCoin": eventAppCreated.Addr, "AppCoinOwner": eventAppCreated.AppOwner,
+	})
 
 	if stdConf.creatorAddr != nil && *stdConf.creatorAddr != eventAppCreated.AppOwner {
 		// not an APP coin by concerned creator
@@ -391,7 +409,7 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 
 	m.AppCoinAddresses = append(m.AppCoinAddresses, eventAppCreated.Addr)
 
-	if err := m.contractEventObserver.OnAppCreated(eventAppCreated); err != nil {
+	if err := m.contractEventObserver.OnAppCreated(eventAppCreated, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle APPCreated event")
 		return false, err
 	}
