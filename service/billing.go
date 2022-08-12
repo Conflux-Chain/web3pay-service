@@ -68,7 +68,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	// get account status
 	appCoinAccount, err := bs.chainSvc.GetOrFetchAccountStatus(req.AppCoin, req.Customer)
 	if err != nil {
-		logger.WithError(err).Debug("Billing charge failed to get account status")
+		logger.WithError(err).Info("Billing charge failed to get account status")
 		return nil, err
 	}
 
@@ -107,7 +107,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 
 		deducted, err := bs.chainSvc.WithholdAccountFee(req.AppCoin, req.Customer, fee)
 		if err != nil {
-			logger.WithError(err).Warn("Billing charge failed to deduct account balance")
+			logger.WithError(err).Error("Billing charge failed to withhold account fee")
 			return err
 		}
 

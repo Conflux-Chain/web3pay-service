@@ -153,6 +153,8 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 			leftConfirmBlocks := targetBlockNumber - latestBlock.Uint64()
 
 			logrus.WithFields(logrus.Fields{
+				"txnBlockNumber":    txn.BlockNumber.Uint64(),
+				"latestBlockNumber": latestBlock.Uint64(),
 				"taskBillId":        billTasks[i].ID,
 				"leftConfirmBlocks": leftConfirmBlocks,
 			}).Debug("Blockchain worker got not enough blocks for task confirmation")
@@ -202,7 +204,7 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 		logrus.WithFields(logrus.Fields{
 			"taskBillId": tasks[i].ID,
 			"writtenOff": exempted,
-		}).Debug("Blockchain worker written off bill task fee")
+		}).Debug("Blockchain worker written off bill fee")
 	}
 
 	util.KLock(service.KeyBillingChargeLocker)
@@ -313,7 +315,7 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		// 2. duplicated txn error
 		// 3. network error
 		if err != nil {
-			logger.WithError(err).Info("Blockchain worker failed to batch charge task bills")
+			logger.WithError(err).Info("Blockchain worker failed to call batch bill charge request")
 			failureTasks = append(failureTasks, tasks...)
 			for i := range tasks { // update task memo
 				tasks[i].Memo = err.Error()
@@ -323,7 +325,7 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		}
 
 		txnHash := txn.Hash().String()
-		logger.WithField("txnHash", txnHash).Debug("Blockchain worker batch charged task bills")
+		logger.WithField("txnHash", txnHash).Debug("Blockchain worker batch bill charged requests called")
 
 		for i := range tasks { // update task info
 			tasks[i].TxnHash = txnHash

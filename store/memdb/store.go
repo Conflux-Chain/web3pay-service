@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/multierr"
 )
 
 const (
@@ -114,7 +115,8 @@ func (ms *MemStore) DeleteAccountsAfterBlock(blockNumber int64) error {
 	it, err := txn.LowerBound(AppCoinAccountDBName, "block", blockNumber)
 	if err != nil {
 		logrus.WithField("blockNumber", blockNumber).
-			WithError(err).Error("Failed to get APP coin accounts with lower bound")
+			WithError(err).
+			Error("MemDB failed to get APP coin accounts with lower bound of block number")
 		return err
 	}
 
@@ -131,14 +133,20 @@ func (ms *MemStore) DeleteAccountsAfterBlock(blockNumber int64) error {
 	txn = ms.Txn(true)
 	defer txn.Commit()
 
-	for i := range toDeleteAccounts {
-		txn.Delete(AppCoinAccountDBName, toDeleteAccounts[i])
+	var finalErr error
+	for _, account := range toDeleteAccounts {
+		err := txn.Delete(AppCoinAccountDBName, account)
+		if err != nil {
+			logrus.WithField("account", *account).
+				WithError(err).
+				Error("MemDB failed to delete APP coin account")
+			finalErr = multierr.Combine(finalErr, err)
+
+			continue
+		}
+
+		logrus.WithField("account", *account).Debug("MemDB deleted APP coin account")
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"blockNumber":      blockNumber,
-		"toDeleteAccounts": toDeleteAccounts,
-	}).Debug("MemDB deleted accounts with confirmed block behind")
-
-	return nil
+	return finalErr
 }

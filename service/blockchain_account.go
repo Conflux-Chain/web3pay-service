@@ -19,7 +19,7 @@ func (svc *BlockchainService) DeleteAccountStatus(appCoin, address common.Addres
 
 	account, _, err := svc.memStore.DeleteAccount(appCoin, address)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get App coin account")
+		return nil, errors.WithMessage(err, "failed to delete App coin account")
 	}
 
 	return account, nil
@@ -32,13 +32,8 @@ func (svc *BlockchainService) UpdateAccountStatus(
 	util.KLock(lockKey)
 	defer util.KUnlock(lockKey)
 
-	logger := logrus.WithFields(logrus.Fields{
-		"appCoin": appCoin, "address": address,
-	})
-
 	account, ok, err := svc.memStore.GetAccount(appCoin, address)
 	if err != nil {
-		logger.WithError(err).Info("Failed to get APP coin account for status update")
 		return nil, errors.WithMessage(err, "failed to get App coin account")
 	}
 
@@ -47,28 +42,23 @@ func (svc *BlockchainService) UpdateAccountStatus(
 	}
 
 	if frozen != nil {
-		logger = logger.WithField("newFrozenStatus", *frozen)
 		account.Frozen = *frozen
 	}
 
 	if balance != nil {
-		logger = logger.WithField("newBalance", balance.String())
 		account.Balance = decimal.NewFromBigInt(balance, 0)
 	}
 
 	if block != nil {
-		logger = logger.WithField("newBlock", *block)
 		account.ConfirmedBlock = *block
 
 		// re-index
 		copy := *account
 		if err := svc.memStore.SaveAccount(&copy); err != nil {
-			logger.WithError(err).Info("Failed to save APP coin account for status update")
 			return nil, errors.WithMessage(err, "failed to save APP coin account")
 		}
 	}
 
-	logger.WithField("account", account).Debug("App coin account status updated")
 	return account, nil
 }
 

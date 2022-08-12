@@ -24,13 +24,13 @@ func init() {
 	// These configurations are based on Conflux eSpace network with `CFX` coin unit.
 	// TODO: support to load from configuration file.
 	depositProgressiveArrivalLatency := map[float32]time.Duration{
-		10:              time.Second * 0,      // for deposit amount (0, 10], instantly
-		100:             time.Second * 3,      // for deposit amount (10, 100], 3s
-		1000:            time.Second * 10,     // for deposit amount (100, 1000], 10s
-		10000:           time.Second * 30,     // for deposit amount (1000, 10000], 30s
-		100000:          time.Second * 60 * 1, // for deposit amount (10000, 100000], 1min
-		1000000:         time.Second * 60 * 3, // for deposit amount (100000, 1000000], 3min
-		math.MaxFloat32: time.Second * 60 * 5, // for deposit amount > 1000000, 5 min
+		100:             time.Second * 0,      // for deposit amount (0, 100], instantly
+		1000:            time.Second * 3,      // for deposit amount (100, 1000], 3s
+		10000:           time.Second * 5,      // for deposit amount (1000, 10000], 5s
+		100000:          time.Second * 10,     // for deposit amount (10000, 100000], 10s
+		1000000:         time.Second * 30,     // for deposit amount (100000, 1000000], 30s
+		10000000:        time.Second * 60,     // for deposit amount (1000000, 10000000], 1min
+		math.MaxFloat32: time.Second * 60 * 2, // for deposit amount > 10000000, 2 min
 	}
 
 	progressiveAmounts := make([]float64, 0, len(depositProgressiveArrivalLatency))
@@ -39,10 +39,11 @@ func init() {
 	}
 
 	sort.Float64s(progressiveAmounts)
-	for _, dpAmount := range progressiveAmounts {
+	for i := range progressiveAmounts {
+		dpAmount := progressiveAmounts[i]
 		progressiveAmountDecimals = append(
 			progressiveAmountDecimals,
-			decimal.NewFromFloatWithExponent(dpAmount, 18),
+			decimal.NewFromFloat(dpAmount).Mul(decimal.New(1, 18)),
 		)
 
 		progressiveArrivalLatency = append(
@@ -50,6 +51,12 @@ func init() {
 			depositProgressiveArrivalLatency[float32(dpAmount)],
 		)
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"progressiveArrivalLatency": progressiveArrivalLatency,
+		"progressiveAmounts":        progressiveAmounts,
+		"progressiveAmountDecimals": progressiveAmountDecimals,
+	}).Debug("Loaded progressive deposit amount to arrival latency hierarchy settings")
 }
 
 type DepositRequest struct {
@@ -73,9 +80,14 @@ func (bs *BlockchainService) DepositPending(request *DepositRequest) error {
 		}
 	}
 
+	logrus.WithFields(logrus.Fields{
+		"depositRequest":    request,
+		"depositAmount":     request.Amount.String(),
+		"arrivalLatency(s)": arrivalLatency.Seconds(),
+	}).Debug("Blockchain service pending deposit request...")
+
 	// add to delay queue for furthur handling
 	bs.delayQueue.Offer(request, time.Now().Add(arrivalLatency))
-
 	return nil
 }
 
@@ -83,23 +95,21 @@ func (bs *BlockchainService) Deposit() {
 	for v := range bs.delayQueue.C {
 		depositReq := v.(*DepositRequest)
 
-		logrus.WithFields(logrus.Fields{
+		logger := logrus.WithFields(logrus.Fields{
 			"depositRequest": depositReq,
 			"amount":         depositReq.Amount.String(),
-		}).Debug("Handling pending deposit request")
+		})
 
 		// skip duplicate deposit transaction hash
 		if _, ok := bs.depositTxnHashCache.Get(depositReq.TxHash.String()); ok {
-			logrus.WithField("txHash", depositReq.TxHash).
-				Debug("Deposit transaction hash already existed")
+			logger.Info("Deposit transaction hash already existed")
 			continue
 		}
 
 		// validate block hash
 		block, err := bs.provider.BlockByNumber(rpc.BlockNumber(depositReq.BlockNumber), false)
 		if err != nil {
-			logrus.WithField("blockNumber", depositReq.BlockNumber).
-				Info("Failed to get block by number to validate deposit txn")
+			logger.Info("Failed to get block by number to validate deposit txn")
 
 			// retry it later
 			bs.delayQueue.Offer(depositReq, time.Now())
@@ -107,72 +117,62 @@ func (bs *BlockchainService) Deposit() {
 		}
 
 		if block.Hash != depositReq.BlockHash {
-			logrus.WithFields(logrus.Fields{
-				"blockHash":           block.Hash,
-				"depositReqBlockHash": depositReq.BlockHash,
-			}).Info("Block hash doesn't match to validate deposit txn")
+			logger.WithField("opponentBlockHash", block.Hash).
+				Info("Block hash doesn't match to validate deposit txn")
 			continue
 		}
 
 		// validate transaction
 		txn, err := bs.provider.TransactionByHash(depositReq.TxHash)
 		if err != nil {
-			logrus.WithField("txnHash", depositReq.TxHash).
-				Info("Failed to get transaction by hash to validate deposit txn")
+			logger.Info("Failed to get transaction by hash to validate deposit txn")
 			// retry it later
 			bs.delayQueue.Offer(depositReq, time.Now())
 			continue
 		}
 
 		if txn == nil { // transaction missing?
-			logrus.WithField("txnHash", depositReq.TxHash).
-				Info("Transaction missing to valdiate deposit txn")
+			logger.Info("Transaction missing to valdiate deposit txn")
 			continue
 		}
 
-		if txn.BlockNumber == nil || txn.BlockHash == nil { // not mined
-			logrus.WithField("txnHash", depositReq.TxHash).
-				Info("Transaction not mined (block number or hash is nil) to valdiate deposit txn")
+		if txn.BlockNumber == nil || txn.BlockHash == nil { // not mined?
+			logger.Info("Transaction not mined (block number or hash is nil) to valdiate deposit txn")
 			continue
 		}
 
 		if *txn.BlockHash != block.Hash {
-			logrus.WithFields(logrus.Fields{
-				"txnHash":      depositReq.TxHash,
-				"txnBlockHash": *txn.BlockHash,
-				"blockHash":    block.Hash,
-			}).Info("Transaction hash not matched to valdiate deposit txn")
+			logger.WithField("txnBlockHash", *txn.BlockHash).
+				Info("Transaction block hash not matched to valdiate deposit txn")
 			continue
 		}
 
 		if txn.BlockNumber.Cmp(block.Number) != 0 {
-			logrus.WithFields(logrus.Fields{
-				"txnHash":        depositReq.TxHash,
-				"txnBlockNumber": txn.BlockNumber.String(),
-				"blockNumber":    block.Number.String(),
-			}).Info("Transaction block number not matched to valdiate deposit txn")
+			logger.WithField("txnBlockNumber", txn.BlockNumber.String()).
+				Info("Transaction block hash not matched to valdiate deposit txn")
 			continue
 		}
 
-		if txn.Status != nil && *txn.Status != types.ReceiptStatusSuccessful {
-			logrus.WithFields(logrus.Fields{
-				"txnHash":   depositReq.TxHash,
-				"txnStatus": *txn.Status,
-			}).Info("Transaction not succeeded to valdiate deposit txn")
+		if txn.Status == nil || *txn.Status != types.ReceiptStatusSuccessful {
+			logger.WithField("txnStatus", txn.Status).
+				Info("Transaction status not successful to valdiate deposit txn")
 			continue
 		}
 
 		deposited, err := bs.IncreaseAccountBalance(
-			depositReq.Coin, depositReq.Address, depositReq.Amount, depositReq.BlockNumber,
+			depositReq.Coin, depositReq.Address,
+			depositReq.Amount, depositReq.BlockNumber,
 		)
 		if err != nil {
-			logrus.WithError(err).Info("Failed to increase account balance for deposit")
-			// retry it later
-			bs.delayQueue.Offer(depositReq, time.Now())
+			logger.WithError(err).
+				Error("Blockchain service failed to increase APP coin account balance")
 			continue
 		}
 
+		logger.WithField("deposited", deposited).
+			Debug("Blockchain service handled deposit request")
+
+		// cache txn hash for dedupe
 		bs.depositTxnHashCache.Set(depositReq.TxHash.String(), struct{}{}, cache.DefaultExpiration)
-		logrus.WithField("deposited", deposited).Debug("Deposit request handled")
 	}
 }
