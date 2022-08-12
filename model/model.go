@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	BillStatusCreated = iota + 1
+	BillStatusCreated = iota
 	BillStatusSubmitting
 	BillStatusSubmitted
 	BillStatusFailed
@@ -25,6 +25,7 @@ type Bill struct {
 	// total deduction fee
 	Fee decimal.Decimal `gorm:"size:128;type:string"`
 	// 0 - created, 1 - submitting, 2 - submitted
+	// record shall be deleted if settlement confirmed
 	Status uint8 `gorm:"default:0"`
 	// transaction hash if submitted
 	TxnHash string `gorm:"size:64;type:string"`

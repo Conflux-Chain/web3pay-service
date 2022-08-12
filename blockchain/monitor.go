@@ -340,19 +340,19 @@ func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Lo
 		return err
 	}
 
-	logger := logrus.WithField("event", eventAppCoinTransfer)
-
 	if !util.IsZeroAddress(eventAppCoinTransfer.From) { // not a minted event?
-		logger.Debug("Monitor skipped APP coin transfer event due to no minted event")
 		return nil
 	}
 
 	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin transfer event")
+		logrus.WithField("event", eventAppCoinTransfer).
+			WithError(err).
+			Info("Monitor failed to handle APP coin transfer event")
 		return err
 	}
 
-	logger.Debug("Monitor handled APP coin transfer event")
+	logrus.WithField("event", eventAppCoinTransfer).
+		Debug("Monitor handled APP coin transfer event")
 	return nil
 }
 
