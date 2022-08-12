@@ -33,10 +33,7 @@ func (svc *BlockchainService) UpdateAccountStatus(
 	defer util.KUnlock(lockKey)
 
 	logger := logrus.WithFields(logrus.Fields{
-		"appCoin": appCoin,
-		"address": address,
-		"block":   block,
-		"frozen":  frozen,
+		"appCoin": appCoin, "address": address,
 	})
 
 	account, ok, err := svc.memStore.GetAccount(appCoin, address)
@@ -50,6 +47,7 @@ func (svc *BlockchainService) UpdateAccountStatus(
 	}
 
 	if frozen != nil {
+		logger = logger.WithField("newFrozenStatus", *frozen)
 		account.Frozen = *frozen
 	}
 
@@ -59,6 +57,7 @@ func (svc *BlockchainService) UpdateAccountStatus(
 	}
 
 	if block != nil {
+		logger = logger.WithField("newBlock", *block)
 		account.ConfirmedBlock = *block
 
 		// re-index
@@ -97,10 +96,6 @@ func (svc *BlockchainService) GetOrFetchAccountStatus(appCoin, address common.Ad
 	if ok {
 		return account, nil
 	}
-
-	logrus.WithFields(logrus.Fields{
-		"coin": appCoin, "address": address,
-	}).Debug("Fetch APP coin account status due not existed yet")
 
 	// fetch balance and frozen status
 	balance, frozen, err := svc.provider.GetAppCoinBalanceAndFrozenStatus(nil, appCoin, address)

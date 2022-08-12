@@ -19,10 +19,11 @@ import (
 )
 
 const (
+	// bill polling for blockchain txn submission
 	pollingInterval  = time.Second * 90
 	pollingBatchSize = 20
-	billQueueSize    = 5000
 
+	billQueueSize           = 5000
 	maxSettlementRetries    = 5
 	minConfirmBlocks        = 30
 	maxPendingAwaitDuration = time.Second * 30
@@ -44,6 +45,10 @@ func NewBillTask(bill *model.Bill, statements map[uint32]int64) *BillTask {
 	}
 }
 
+func (t *BillTask) isExpired(lifetime time.Duration) bool {
+	return time.Now().After(t.SubmittedAt.Add(lifetime))
+}
+
 type BlockchainWorker struct {
 	provider            *blockchain.Provider
 	sqliteStore         *sqlite.SqliteStore
@@ -51,32 +56,31 @@ type BlockchainWorker struct {
 	chainSvc            *service.BlockchainService
 	billSettlementQueue chan []*BillTask
 	billConfirmQueue    chan []*BillTask
-	billRetryQueue      chan []*BillTask
 }
 
 func NewBlockchainWorker(
 	provider *blockchain.Provider, sqliteStore *sqlite.SqliteStore,
 	billSvc *service.BillingService, chainSvc *service.BlockchainService,
 ) *BlockchainWorker {
-	// TODO: also check submitting/submitted tasks status?
+	// TODO: check bill submitting/submitted tasks status for action before run?
 	return &BlockchainWorker{
 		sqliteStore: sqliteStore, provider: provider,
 		billSvc: billSvc, chainSvc: chainSvc,
 		billSettlementQueue: make(chan []*BillTask, billQueueSize),
 		billConfirmQueue:    make(chan []*BillTask, billQueueSize),
-		billRetryQueue:      make(chan []*BillTask, billQueueSize),
 	}
 }
 
 func (worker *BlockchainWorker) Run() {
 	go worker.poll()
 	go worker.confirm()
-	go worker.retry()
 
 	worker.settle()
 }
 
 func (worker *BlockchainWorker) confirm() {
+	// TODO: task confirmations are order independent, multiple consumers can be utilized
+	// to increase workload capacity.
 	for billTasks := range worker.billConfirmQueue {
 		worker.confirmBillTasks(billTasks)
 	}
@@ -86,74 +90,77 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	var successTasks, reconfirmTasks, retryTasks []*BillTask
 
 	for i := range billTasks {
-		logrus.WithField("task", billTasks[i]).Debug("Blockchain worker confirming bill task")
+		logger := logrus.WithFields(logrus.Fields{
+			"taskBillID": billTasks[i].ID, "txnHash": billTasks[i].TxnHash,
+		})
 
 		txnHash := common.HexToHash(billTasks[i].TxnHash)
 		txn, err := worker.provider.TransactionByHash(txnHash)
 		if err != nil {
-			logrus.WithField("task", billTasks[i]).WithError(err).
-				Info("Blockchain worker failed to get txn by hash during confirm")
-
+			logger.WithError(err).
+				Info("Blockchain worker failed to get txn by hash for task confirmation")
 			reconfirmTasks = append(reconfirmTasks, billTasks[i])
+
 			continue
 		}
 
-		if txn == nil { // transaction dropped?
-			logrus.WithField("task", billTasks[i]).
-				Debug("Blockchain worker got nil txn for confirming task")
-
+		// transaction dropped?
+		if txn == nil {
+			logger.Info("Blockchain worker got txn dropped for task confirmation")
 			billTasks[i].Memo = "transaction dropped"
 			retryTasks = append(retryTasks, billTasks[i])
+
 			continue
 		}
 
-		if txn.BlockHash == nil { // transaction pending (not mined or executed)?
-			if time.Now().After(billTasks[i].SubmittedAt.Add(maxPendingAwaitDuration)) { // pending too long?
-				logrus.WithField("task", billTasks[i]).
-					Debug("Blockchain worker got timeout pending txn for confirming task")
-
+		// transaction pending (not mined or executed)?
+		if txn.BlockHash == nil {
+			if billTasks[i].isExpired(maxPendingAwaitDuration) { // pending too long?
+				logger.WithField("submittedAt", billTasks[i].SubmittedAt).
+					Info("Blockchain worker got txn pending too long for task confirmation")
 				billTasks[i].Memo = "transaction pending too long"
 				retryTasks = append(retryTasks, billTasks[i])
 			} else {
-				logrus.WithField("task", billTasks[i]).
-					Debug("Blockchain worker got pending txn for confirming task")
-
+				logger.Debug("Blockchain worker got txn pending for task confirmation")
 				reconfirmTasks = append(reconfirmTasks, billTasks[i])
 			}
 
 			continue
 		}
 
-		if txn.Status == nil || *txn.Status != ethtypes.ReceiptStatusSuccessful { // transaction failed?
-			logrus.WithFields(logrus.Fields{
-				"task":      billTasks[i],
-				"txnStatus": txn.Status,
-			}).Debug("Blockchain worker got non-successful txn for confirming task")
-
+		// transaction failed?
+		if txn.Status == nil || *txn.Status != ethtypes.ReceiptStatusSuccessful {
+			logger.WithField("txnStatus", txn.Status).
+				Info("Blockchain worker got non-successful txn for task confirmation")
 			billTasks[i].Memo = fmt.Sprintf("transaction execution failed with status %v", txn.Status)
 			retryTasks = append(retryTasks, billTasks[i])
+
 			continue
 		}
 
 		latestBlock, err := worker.provider.BlockNumber()
 		if err != nil {
-			logrus.WithField("task", billTasks[i]).WithError(err).
-				Info("Blockchain worker failed to get latest block number during confirm")
+			logger.WithError(err).
+				Info("Blockchain worker failed to get latest block number for task confirmation")
+			reconfirmTasks = append(reconfirmTasks, billTasks[i])
 
+			continue
+		}
+
+		// enough blocks confirmed?
+		targetBlockNumber := (txn.BlockNumber.Uint64() + minConfirmBlocks)
+		if targetBlockNumber > latestBlock.Uint64() {
+			leftConfirmBlocks := targetBlockNumber - latestBlock.Uint64()
+
+			logrus.WithFields(logrus.Fields{
+				"taskBillId":        billTasks[i].ID,
+				"leftConfirmBlocks": leftConfirmBlocks,
+			}).Debug("Blockchain worker got not enough blocks for task confirmation")
 			reconfirmTasks = append(reconfirmTasks, billTasks[i])
 			continue
 		}
 
-		if (txn.BlockNumber.Uint64() + minConfirmBlocks) > latestBlock.Uint64() {
-			logrus.WithField("task", billTasks[i]).
-				Debug("Blockchain worker got not enough blocks for confirming task")
-
-			// no enough blocks confirmed?
-			reconfirmTasks = append(reconfirmTasks, billTasks[i])
-			continue
-		}
-
-		logrus.WithField("task", billTasks[i]).Debug("Blockchain worker confirmed txn for task")
+		logger.Debug("Blockchain worker finished task confirmation")
 		successTasks = append(successTasks, billTasks[i])
 	}
 
@@ -162,12 +169,12 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	}
 
 	if len(retryTasks) > 0 {
-		worker.billRetryQueue <- retryTasks
+		worker.billSettlementQueue <- retryTasks
 	}
 
 	if len(reconfirmTasks) > 0 {
-		// wait for a while for re-confirm tasks
-		time.AfterFunc(time.Second, func() {
+		// wait for a while to reconfirm tasks
+		time.AfterFunc(2*time.Second, func() {
 			worker.billConfirmQueue <- reconfirmTasks
 		})
 	}
@@ -185,11 +192,17 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 		)
 
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"task":     tasks[i],
-				"exempted": exempted,
-			}).WithError(err).Info("Blockchain worker failed to exempt account fee")
+			logrus.WithField("taskBillId", tasks[i].ID).
+				WithError(err).
+				Error("Blockchain worker failed to write off bill task fee")
+
+			continue
 		}
+
+		logrus.WithFields(logrus.Fields{
+			"taskBillId": tasks[i].ID,
+			"writtenOff": exempted,
+		}).Debug("Blockchain worker written off bill task fee")
 	}
 
 	util.KLock(service.KeyBillingChargeLocker)
@@ -198,77 +211,50 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 	if err := worker.sqliteStore.Delete(&model.Bill{}, delBillIds).Error; err != nil {
 		logrus.WithField("delBillIds", delBillIds).
 			WithError(err).
-			Info("Blockchain worker failed to delete bills")
-	}
-}
-
-func (worker *BlockchainWorker) retry() {
-	for billTasks := range worker.billRetryQueue {
-		worker.retryBillTasks(billTasks)
-	}
-}
-
-func (worker *BlockchainWorker) retryBillTasks(billTasks []*BillTask) {
-	var doTasks, deadTasks, retryTasks []*BillTask
-
-	// filter dead tasks
-	for i := range billTasks {
-		if billTasks[i].TryTimes > maxSettlementRetries {
-			deadTasks = append(deadTasks, billTasks[i])
-			continue
-		}
-
-		doTasks = append(doTasks, billTasks[i])
-	}
-
-	successTasks, failureTasks := worker.settleBillTasks(doTasks)
-
-	// update bill submitted status
-	if len(successTasks) > 0 {
-		worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
-
-		// put into confirm queue
-		worker.billConfirmQueue <- successTasks
-	}
-
-	// filter retry tasks && dead tasks
-	for i := range failureTasks {
-		if failureTasks[i].TryTimes <= maxSettlementRetries {
-			retryTasks = append(retryTasks, failureTasks[i])
-			continue
-		}
-
-		logrus.WithField("task", failureTasks[i]).
-			Info("Blockchain worker failed to handle (dead) bill task after too many retries")
-		deadTasks = append(deadTasks, failureTasks[i])
-	}
-
-	// update bill failed status
-	if len(deadTasks) > 0 {
-		worker.updateBillTaskStatus(deadTasks, model.BillStatusFailed)
-	}
-
-	if len(retryTasks) > 0 {
-		// put into retry queue
-		worker.billRetryQueue <- retryTasks
+			Error("Blockchain worker failed to delete task bills")
 	}
 }
 
 func (worker *BlockchainWorker) settle() {
 	for billTasks := range worker.billSettlementQueue {
-		successTasks, failureTasks := worker.settleBillTasks(billTasks)
+		var todoTasks, deadTasks []*BillTask
 
-		// update bill submitted status
+		// filter dead tasks and todo tasks
+		for i := range billTasks {
+			if billTasks[i].TryTimes > maxSettlementRetries {
+				logrus.WithFields(logrus.Fields{
+					"bill":       *billTasks[i].Bill,
+					"statements": billTasks[i].Statements,
+					"tryTimes":   billTasks[i].TryTimes,
+				}).Warn("Blockchain worker dumped (dead) bill tasks after too many retries")
+				deadTasks = append(deadTasks, billTasks[i])
+				continue
+			}
+
+			todoTasks = append(todoTasks, billTasks[i])
+		}
+
+		if len(deadTasks) > 0 {
+			// update bill failed status
+			worker.updateBillTaskStatus(deadTasks, model.BillStatusFailed)
+		}
+
+		if len(todoTasks) == 0 {
+			return
+		}
+
+		successTasks, failureTasks := worker.settleBillTasks(todoTasks)
+
 		if len(successTasks) > 0 {
+			// update bill submitted status
 			worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
-
 			// put into confirm queue
 			worker.billConfirmQueue <- successTasks
 		}
 
 		if len(failureTasks) > 0 {
 			// put into retry queue
-			worker.billRetryQueue <- failureTasks
+			worker.billSettlementQueue <- failureTasks
 		}
 	}
 }
@@ -279,8 +265,6 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 	coinRequests := make(map[string][]contract.APPCoinChargeRequest)
 
 	for _, task := range billTasks {
-		coinTasks[task.Coin] = append(coinTasks[task.Coin], task)
-
 		var details []contract.APPCoinResourceUseDetail
 		for resourceIndex, callTimes := range task.Statements {
 			details = append(details, contract.APPCoinResourceUseDetail{
@@ -295,16 +279,32 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 			UseDetail: details,
 		})
 
-		task.TryTimes++
+		coinTasks[task.Coin] = append(coinTasks[task.Coin], task)
 	}
 
 	// call batch charge contract method for settlement
 	for coin, req := range coinRequests {
+		tasks := coinTasks[coin]
+		taskInfos := make([]interface{}, 0, len(tasks))
+
+		for i := range tasks {
+			tasks[i].TryTimes++ // update try times
+
+			taskInfos = append(taskInfos, struct {
+				TaskBillId uint64
+				Statements map[uint32]int64
+				TryTimes   uint
+			}{tasks[i].ID, tasks[i].Statements, tasks[i].TryTimes})
+		}
+
+		logger := logrus.WithFields(logrus.Fields{
+			"APPCoin":              coin,
+			"batchChargeBillTasks": taskInfos,
+		})
+
 		txn, err := worker.provider.BatchChargeAppCoinBills(
 			&bind.TransactOpts{}, common.HexToAddress(coin), req,
 		)
-
-		tasks := coinTasks[coin]
 
 		// TODO: distinguish between different error types
 		// https://developer.confluxnetwork.org/sending-tx/en/transaction_send_common_error
@@ -313,12 +313,9 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		// 2. duplicated txn error
 		// 3. network error
 		if err != nil {
-			logrus.WithField("tasks", tasks).
-				WithError(err).
-				Debug("Blockchain worker failed to submit batch charge APP coin request")
-
+			logger.WithError(err).Info("Blockchain worker failed to batch charge task bills")
 			failureTasks = append(failureTasks, tasks...)
-			for i := range tasks {
+			for i := range tasks { // update task memo
 				tasks[i].Memo = err.Error()
 			}
 
@@ -326,15 +323,14 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		}
 
 		txnHash := txn.Hash().String()
-		for i := range tasks {
+		logger.WithField("txnHash", txnHash).Debug("Blockchain worker batch charged task bills")
+
+		for i := range tasks { // update task info
 			tasks[i].TxnHash = txnHash
 			tasks[i].SubmittedAt = time.Now()
 		}
 
 		successTasks = append(successTasks, tasks...)
-
-		logrus.WithField("task", tasks).
-			Debug("Blockchain worker succeeded to submit batch charge APP coin request")
 	}
 
 	return
@@ -369,15 +365,15 @@ func (worker *BlockchainWorker) poll() {
 	for range ticker.C {
 		if err := worker.pollOnce(); err != nil {
 			logrus.WithError(err).
-				Error("Blockchain worker failed to poll bills for settlement")
+				Error("Blockchain worker failed to poll bill tasks for settlement")
 		}
 	}
 }
 
 // poll polls for bills to settle on the blockchain.
 func (w *BlockchainWorker) pollOnce() error {
-	if len(w.billSettlementQueue) >= billQueueSize { // channel full?
-		logrus.Debug("Blockchain worker skipped to poll bill tasks due to settlement queue full")
+	if overloaded, reason := w.isOverloaded(); overloaded { // overload protection
+		logrus.WithField("reason", reason).Debug("Blockchain worker skipped polling due to overload")
 		return nil
 	}
 
@@ -393,7 +389,7 @@ func (w *BlockchainWorker) pollOnce() error {
 	}
 
 	if len(bills) == 0 {
-		logrus.Debug("Blockchain worker skipped without any concerned bills")
+		logrus.Debug("Blockchain worker polled without any charge bills")
 		return nil
 	}
 
@@ -408,18 +404,31 @@ func (w *BlockchainWorker) pollOnce() error {
 		return errors.WithMessage(err, "failed to update bill status")
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"batchBills":   bills,
-		"updatedBills": res.RowsAffected,
-	}).Debug("Blockchain worker fetched bills for settlement")
-
 	billTasks := make([]*BillTask, 0, len(bills))
 	for _, bill := range bills {
 		statements := w.billSvc.GetAndDelStatements(bill.ID)
 		billTasks = append(billTasks, NewBillTask(bill, statements))
 	}
 
+	logrus.WithField("taskBillIds", updateBillIds).
+		Debug("Blockchain worker polled task bills for settlement")
 	w.billSettlementQueue <- billTasks
 
 	return nil
+}
+
+// isOverloaded check if the worker is overloaded
+func (w *BlockchainWorker) isOverloaded() (bool, string) {
+	// cumulative ratio should not be more than 75%, otherwise regarded as overloaded
+	maxCumulativeSize := billQueueSize * 3 / 4
+
+	if len(w.billSettlementQueue) > maxCumulativeSize {
+		return true, "cumulative ratio for settlement queue too high"
+	}
+
+	if len(w.billConfirmQueue) > maxCumulativeSize {
+		return true, "cumulative ratio for txn confirmation queue too high"
+	}
+
+	return false, ""
 }
