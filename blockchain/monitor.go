@@ -22,34 +22,24 @@ const (
 	syncIntervalCatchUp = time.Millisecond * 100
 )
 
-type MonitorConfig struct {
-	ControllerAddress   common.Address   // controller contract
-	AppCoinAddresses    []common.Address // APP coin contract list
-	SyncFromBlockNumber int64            // the block number to start sync from
-	SyncIntervalNormal  time.Duration    // interval to sync data in normal status
-	SyncIntervalCatchUp time.Duration    // interval to sync data in catching up mode
-}
-
-func NewMonitorConfig(
-	syncStartBlock int64, controllerAddr common.Address, appCoinAddrs []common.Address) *MonitorConfig {
-	return &MonitorConfig{
-		ControllerAddress:   controllerAddr,
-		AppCoinAddresses:    appCoinAddrs,
-		SyncFromBlockNumber: syncStartBlock,
-		SyncIntervalNormal:  syncIntervalNormal,
-		SyncIntervalCatchUp: syncIntervalCatchUp,
-	}
+type monitorConfig struct {
+	ControllerAddress    common.Address   // controller contract
+	FilterCreatorAddress *common.Address  // filtering APP coin creator
+	AppCoinAddresses     []common.Address // APP coin contract list
+	SyncFromBlockNumber  int64            // the block number to start sync from
+	SyncIntervalNormal   time.Duration    // interval to sync data in normal status
+	SyncIntervalCatchUp  time.Duration    // interval to sync data in catching up mode
 }
 
 // Monitor sync blockchain event logs to monitor contract events.
 type Monitor struct {
-	*MonitorConfig                              // monitor configurations
+	*monitorConfig                              // monitor configurations
 	provider              *Provider             // blockchain ops provider
 	blockWindow           *blockHashWindow      // window to cache sequent block hashes
 	contractEventObserver ContractEventObserver // contract event observer
 }
 
-func MustNewMonitor(provider *Provider, eventObserver ContractEventObserver) *Monitor {
+func MustNewMonitor(config *Config, provider *Provider, eventObserver ContractEventObserver) *Monitor {
 	refBlockNumber := provider.ReferenceBlockNumber()
 	baseCallOpt := &bind.CallOpts{
 		BlockNumber: big.NewInt(refBlockNumber),
@@ -60,11 +50,18 @@ func MustNewMonitor(provider *Provider, eventObserver ContractEventObserver) *Mo
 		logrus.WithError(err).Fatal("Failed to get APP coin list to init monitor")
 	}
 
-	config := NewMonitorConfig(refBlockNumber+1, stdConf.controllerContractAddr, appCoinAddrs)
+	monConfig := &monitorConfig{
+		ControllerAddress:    config.ControllerContractAddr,
+		FilterCreatorAddress: config.CreatorAddr,
+		AppCoinAddresses:     appCoinAddrs,
+		SyncFromBlockNumber:  refBlockNumber + 1,
+		SyncIntervalNormal:   syncIntervalNormal,
+		SyncIntervalCatchUp:  syncIntervalCatchUp,
+	}
 	logrus.WithField("monitorConfig", config).Debug("Monitor config loaded")
 
 	return &Monitor{
-		MonitorConfig:         config,
+		monitorConfig:         monConfig,
 		provider:              provider,
 		blockWindow:           newBlockHashWindow(blockWinCapacity),
 		contractEventObserver: eventObserver,
@@ -393,9 +390,9 @@ func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
 		"AppCoin": eventAppCreated.Addr, "AppCoinOwner": eventAppCreated.AppOwner,
 	})
 
-	if stdConf.creatorAddr != nil && *stdConf.creatorAddr != eventAppCreated.AppOwner {
+	if m.FilterCreatorAddress != nil && *m.FilterCreatorAddress != eventAppCreated.AppOwner {
 		// not an APP coin by concerned creator
-		logger.Debug("Monitor skipped APPCreated event due to not a concerned creator")
+		logger.Debug("Monitor skipped APPCreated event due to not a concerned APP coin creator")
 		return false, nil
 	}
 

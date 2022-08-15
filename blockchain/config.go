@@ -6,15 +6,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var stdConf *config
-
-type config struct {
-	controllerContractAddr common.Address
-	creatorAddr            *common.Address
-	operatorPrivateKey     string
+type Config struct {
+	ControllerContractAddr common.Address
+	CreatorAddr            *common.Address
+	OperatorPrivateKey     string
 }
 
-func init() {
+func MustNewConfigFromViper() *Config {
 	var rawConfig struct {
 		ControllerContractAddr string
 		CreatorAddr            string
@@ -33,9 +31,9 @@ func init() {
 		logrus.Fatal("Operator private key not configured")
 	}
 
-	stdConf = &config{
-		controllerContractAddr: common.HexToAddress(rawConfig.ControllerContractAddr),
-		operatorPrivateKey:     rawConfig.OperatorPrivateKey,
+	conf := &Config{
+		ControllerContractAddr: common.HexToAddress(rawConfig.ControllerContractAddr),
+		OperatorPrivateKey:     rawConfig.OperatorPrivateKey,
 	}
 
 	if len(rawConfig.CreatorAddr) > 0 {
@@ -46,6 +44,8 @@ func init() {
 		}
 
 		creator := common.HexToAddress(rawConfig.CreatorAddr)
-		stdConf.creatorAddr = &creator
+		conf.CreatorAddr = &creator
 	}
+
+	return conf
 }

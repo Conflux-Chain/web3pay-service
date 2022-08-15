@@ -10,45 +10,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type JrChargeArgs struct {
-	chargeRequest
-}
-
-type JrChargeRely struct {
-	*model.BusinessError
-}
-
 type JrBillingApi struct {
 	billingSvc *service.BillingService
 }
 
 // JSON-RPC Billing API can be requested like:
 // {"jsonrpc":"2.0","method":"billing.Charge","params":[{ "dryRun": true, "resourceId": "default"}],"id":1}
-func (api *JrBillingApi) Charge(r *http.Request, args *JrChargeArgs, reply *JrChargeRely) error {
+func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequest, reply *model.BusinessError) error {
 	ctx := r.Context()
 	reqId := requestIdFromContext(ctx)
-	contract := contractAddrFromContext(ctx)
-	customer := customerAddrFromContext(ctx)
-
-	chargeReq := &service.ChargeRequest{
-		ResourceId: args.ResourceId,
-		DryRun:     args.DryRun,
-		AppCoin:    contract,
-		Customer:   customer,
-	}
+	args.AppCoin = contractAddrFromContext(ctx)
+	args.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{
-		"chargeRequest": chargeReq,
+		"chargeRequest": args,
 		"requestId":     reqId,
 		"isJsonRPC":     true,
 	})
 
-	receipt, err := api.billingSvc.Charge(ctx, chargeReq)
+	receipt, err := api.billingSvc.Charge(ctx, args)
 	if err != nil {
 		logger.WithError(err).Debug("Billing charge failed")
 
 		if bzerr, ok := err.(*model.BusinessError); ok {
-			reply.BusinessError = bzerr
+			*reply = *bzerr
 			return nil
 		}
 
@@ -57,7 +42,9 @@ func (api *JrBillingApi) Charge(r *http.Request, args *JrChargeArgs, reply *JrCh
 
 	logger.WithField("receipt", receipt).Debug("Billing charge done")
 
-	reply.BusinessError = model.ErrNil.WithData(receipt)
+	nilErr := model.ErrNil.WithData(receipt)
+	*reply = *nilErr
+
 	return nil
 }
 

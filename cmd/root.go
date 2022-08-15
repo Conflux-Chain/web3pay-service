@@ -31,14 +31,17 @@ func start(cmd *cobra.Command, args []string) {
 	memStore := memdb.MustNewStoreFromViper()
 	defer memStore.Close()
 
+	// blockchain config
+	chainConfig := blockchain.MustNewConfigFromViper()
+
 	// blockchain ops provider
-	chainOpsProvider := blockchain.MustNewProvider()
+	chainOpsProvider := blockchain.MustNewProvider(chainConfig)
 
 	// service factory
 	serviceFactory := service.MustNewFactory(sqliteStore, memStore, chainOpsProvider)
 
 	// monitor
-	chainMonitor := blockchain.MustNewMonitor(chainOpsProvider, serviceFactory.Blockchain)
+	chainMonitor := blockchain.MustNewMonitor(chainConfig, chainOpsProvider, serviceFactory.Blockchain)
 
 	// worker
 	chainWorker := worker.NewBlockchainWorker(
