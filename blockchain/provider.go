@@ -35,6 +35,8 @@ type contractBindCallContext struct {
 // Provider provides blockchain operations.
 type Provider struct {
 	*client.RpcEthClient
+	Config
+
 	bindCallContext      *contractBindCallContext
 	controller           *contract.Controller
 	mutex                sync.Mutex
@@ -42,9 +44,9 @@ type Provider struct {
 	referenceBlockNumber int64    // reference block number for ops (eg., sync)
 }
 
-func MustNewProvider() *Provider {
+func MustNewProvider(config *Config) *Provider {
 	// sign manager
-	signerMgr := signers.MustNewSignerManagerByPrivateKeyStrings([]string{stdConf.operatorPrivateKey})
+	signerMgr := signers.MustNewSignerManagerByPrivateKeyStrings([]string{config.OperatorPrivateKey})
 	signerAddr := signerMgr.List()[0].Address()
 
 	// eth client
@@ -60,9 +62,9 @@ func MustNewProvider() *Provider {
 	clientForContract, singerFn := w3c.ToClientForContract()
 
 	// init controller contract stub
-	ctrlCaller, err := contract.NewController(stdConf.controllerContractAddr, clientForContract)
+	ctrlCaller, err := contract.NewController(config.ControllerContractAddr, clientForContract)
 	if err != nil {
-		logrus.WithField("ctrlAddr", stdConf.controllerContractAddr).
+		logrus.WithField("ctrlAddr", config.ControllerContractAddr).
 			WithError(err).
 			Fatal("Failed to initialize controller contract")
 	}
@@ -71,6 +73,7 @@ func MustNewProvider() *Provider {
 
 	return &Provider{
 		RpcEthClient: w3c.Eth,
+		Config:       *config,
 		bindCallContext: &contractBindCallContext{
 			signerAddress:  signerAddr,
 			contractClient: clientForContract,
@@ -274,8 +277,8 @@ func (p *Provider) GetAppCoinResources(
 // IterateTrackedAppCoins iterates all tracked APP coin contracts.
 func (p *Provider) IterateTrackedAppCoins(
 	callOpts *bind.CallOpts, iterator func(common.Address) error) error {
-	if stdConf.creatorAddr != nil {
-		return p.iterateControllerAppCoins(callOpts, iterator, *stdConf.creatorAddr)
+	if p.CreatorAddr != nil {
+		return p.iterateControllerAppCoins(callOpts, iterator, *p.CreatorAddr)
 	}
 
 	return p.iterateControllerAppCoins(callOpts, iterator)

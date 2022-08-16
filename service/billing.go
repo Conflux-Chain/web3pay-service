@@ -17,16 +17,16 @@ const (
 	KeyBillingChargeLocker = util.MutexKey("BillingChargeLocker")
 )
 
-type ChargeRequest struct {
-	ResourceId string
-	DryRun     bool
-	AppCoin    common.Address
-	Customer   common.Address
+type BillingChargeRequest struct {
+	ResourceId string         `json:"resourceId"`
+	DryRun     bool           `json:"dryRun"`
+	AppCoin    common.Address `json:"-"`
+	Customer   common.Address `json:"-"`
 }
 
-type ChargeReceipt struct {
-	ResourceId string
-	Fee        string
+type BillingChargeReceipt struct {
+	ResourceId string `json:"resourceId"`
+	Fee        string `json:"fee"`
 }
 
 type BillingService struct {
@@ -44,7 +44,7 @@ func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainServ
 	}
 }
 
-func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*ChargeReceipt, error) {
+func (bs *BillingService) Charge(ctx context.Context, req *BillingChargeRequest) (*BillingChargeReceipt, error) {
 	logger := logrus.WithField("request", req)
 
 	resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.AppCoin, req.ResourceId)
@@ -59,7 +59,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 	if fee.Cmp(big.NewInt(0)) <= 0 { // no fee charged
 		logger.WithError(err).Debug("Billing charge skipped with no fee to be charged")
 
-		return &ChargeReceipt{
+		return &BillingChargeReceipt{
 			ResourceId: resource.ResourceId,
 			Fee:        fmt.Sprintf("%v", fee.String()),
 		}, nil
@@ -88,7 +88,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 
 	if req.DryRun { // for simulation only?
 		logger.Debug("Billing charge skipped for dry run")
-		return &ChargeReceipt{
+		return &BillingChargeReceipt{
 			ResourceId: resource.ResourceId,
 			Fee:        fmt.Sprintf("%v", fee.String()),
 		}, nil
@@ -120,7 +120,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *ChargeRequest) (*Char
 		return nil, err
 	}
 
-	return &ChargeReceipt{
+	return &BillingChargeReceipt{
 		ResourceId: resource.ResourceId,
 		Fee:        fee.String(),
 	}, nil

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Conflux-Chain/web3pay-service/api"
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -56,10 +56,10 @@ func (pmp *PaymentMwProvider) getResourceId(method string) string {
 // BillingCharge returns billing charge middleware.
 func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 	return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
-		var args api.JrChargeArgs
-		var resp struct {
-			Result api.JrChargeRely `json:"result"`
-			Error  interface{}      `json:"error"`
+		var args service.BillingChargeRequest
+		var reply struct {
+			Result *model.BusinessError `json:"result"`
+			Error  interface{}          `json:"error"`
 			// ignore `id`
 		}
 
@@ -67,7 +67,7 @@ func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.Hand
 		args.ResourceId = pmp.getResourceId(msg.Method)
 
 		// call payment gateway for billing charge
-		if err := pmp.client.Call(&resp, "billing.Charge", args); err != nil {
+		if err := pmp.client.Call(&reply, "billing.Charge", args); err != nil {
 			logrus.WithField("args", args).
 				WithError(err).
 				Error("Billing charge middleware failed to request payment gateway")
@@ -80,32 +80,32 @@ func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.Hand
 		}
 
 		// handle internal error for payment gateway
-		if resp.Error != nil {
+		if reply.Error != nil {
 			logrus.WithFields(logrus.Fields{
 				"args":  args,
-				"error": resp.Error,
+				"error": reply.Error,
 			}).Warn("Billing charge middleware encountered internal payment gateway error")
 
 			if pmp.fallback != nil {
 				return pmp.fallback(next)(ctx, msg)
 			}
 
-			err := fmt.Errorf("bad payment gateway: %v", resp.Error)
+			err := fmt.Errorf("bad payment gateway: %v", reply.Error)
 			return msg.ErrorResponse(err)
 		}
 
 		// handle business error for payment gateway
-		if resp.Result.Code != model.ErrNil.Code {
+		if reply.Result.Code != model.ErrNil.Code {
 			logrus.WithFields(logrus.Fields{
 				"args":  args,
-				"reply": resp.Result,
+				"reply": reply.Result,
 			}).Debug("Billing charge middleware failed to billing charge from payment gateway")
 
 			if pmp.fallback != nil {
 				return pmp.fallback(next)(ctx, msg)
 			}
 
-			return msg.ErrorResponse(resp.Result)
+			return msg.ErrorResponse(reply.Result)
 		}
 
 		return next(ctx, msg)

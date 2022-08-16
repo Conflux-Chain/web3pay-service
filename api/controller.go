@@ -20,35 +20,23 @@ func NewBillingController(billingSvc *service.BillingService) *BillingController
 	return &BillingController{billingSvc: billingSvc}
 }
 
-type chargeRequest struct {
-	ResourceId string `json:"resourceId"`
-	DryRun     bool   `json:"dryRun"`
-}
-
 func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
-	var cr chargeRequest
+	var cr service.BillingChargeRequest
 	if err := jsonUnmarshalRequestBody(hc.r, &cr); err != nil {
 		return nil, model.ErrValidation.WithData(err.Error())
 	}
 
 	ctx := hc.r.Context()
 	reqId := requestIdFromContext(ctx)
-	contract := contractAddrFromContext(ctx)
-	customer := customerAddrFromContext(ctx)
-
-	chargeReq := &service.ChargeRequest{
-		ResourceId: cr.ResourceId,
-		DryRun:     cr.DryRun,
-		AppCoin:    contract,
-		Customer:   customer,
-	}
+	cr.AppCoin = contractAddrFromContext(ctx)
+	cr.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{
-		"chargeRequest": chargeReq,
+		"chargeRequest": cr,
 		"requestId":     reqId,
 	})
 
-	receipt, err := bc.billingSvc.Charge(ctx, chargeReq)
+	receipt, err := bc.billingSvc.Charge(ctx, &cr)
 	if err != nil {
 		logger.WithError(err).Debug("Billing charge failed")
 		return nil, err
