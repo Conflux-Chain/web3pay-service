@@ -2,13 +2,18 @@ package rpc
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/ybbus/jsonrpc/v3"
+)
+
+const (
+	jsonRpcMethodBillingCharge = "billing.Charge"
 )
 
 // ResourceIdMapper maps RPC method to resource ID
@@ -17,21 +22,26 @@ type ResourceIdMapper func(method string) string
 // PaymentMwProvider payment middleware provider
 type PaymentMwProvider struct {
 	gateWayURL       string
-	client           *rpc.Client
+	client           jsonrpc.RPCClient
 	fallback         rpc.HandleCallMsgMiddleware
 	resourceIdMapper ResourceIdMapper
 }
 
 // NewPaymentMwProvider new payment middleware provider
 func NewPaymentMwProvider(gateWayUrl string) (*PaymentMwProvider, error) {
-	client, err := rpc.DialHTTP(gateWayUrl)
-	if err != nil {
+	rpcClient := jsonrpc.NewClient(gateWayUrl)
+
+	// try to dial
+	ctx, cancer := context.WithTimeout(context.Background(), time.Second)
+	defer cancer()
+
+	if _, err := rpcClient.Call(ctx, jsonRpcMethodBillingCharge); err != nil {
 		return nil, errors.WithMessage(err, "failed to dial payment gateway")
 	}
 
 	return &PaymentMwProvider{
 		gateWayURL: gateWayUrl,
-		client:     client,
+		client:     rpcClient,
 	}, nil
 }
 
@@ -57,17 +67,15 @@ func (pmp *PaymentMwProvider) getResourceId(method string) string {
 func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 	return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
 		var args service.BillingChargeRequest
-		var reply struct {
-			Result *model.BusinessError `json:"result"`
-			Error  interface{}          `json:"error"`
-			// ignore `id`
-		}
+		var reply *model.BusinessError
 
 		// map method to resource ID
 		args.ResourceId = pmp.getResourceId(msg.Method)
 
+		// TODO: add auth headers
+
 		// call payment gateway for billing charge
-		if err := pmp.client.Call(&reply, "billing.Charge", args); err != nil {
+		if err := pmp.client.CallFor(ctx, &reply, jsonRpcMethodBillingCharge, args); err != nil {
 			logrus.WithField("args", args).
 				WithError(err).
 				Error("Billing charge middleware failed to request payment gateway")
@@ -79,34 +87,26 @@ func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.Hand
 			return msg.ErrorResponse(err)
 		}
 
-		// handle internal error for payment gateway
-		if reply.Error != nil {
-			logrus.WithFields(logrus.Fields{
-				"args":  args,
-				"error": reply.Error,
-			}).Warn("Billing charge middleware encountered internal payment gateway error")
-
-			if pmp.fallback != nil {
-				return pmp.fallback(next)(ctx, msg)
-			}
-
-			err := fmt.Errorf("bad payment gateway: %v", reply.Error)
-			return msg.ErrorResponse(err)
-		}
-
 		// handle business error for payment gateway
-		if reply.Result.Code != model.ErrNil.Code {
+		if reply.Code != model.ErrNil.Code {
 			logrus.WithFields(logrus.Fields{
-				"args":  args,
-				"reply": reply.Result,
+				"args":       args,
+				"errCode":    reply.Code,
+				"errMessage": reply.Message,
+				"errData":    reply.Data,
 			}).Debug("Billing charge middleware failed to billing charge from payment gateway")
 
 			if pmp.fallback != nil {
 				return pmp.fallback(next)(ctx, msg)
 			}
 
-			return msg.ErrorResponse(reply.Result)
+			return msg.ErrorResponse(errors.WithMessage(reply, "billing charge middleware error"))
 		}
+
+		logrus.WithFields(logrus.Fields{
+			"args":    args,
+			"receipt": reply.Data,
+		}).Debug("Billing charge middleware charged successfully")
 
 		return next(ctx, msg)
 	}

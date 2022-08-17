@@ -28,7 +28,7 @@ func MustServe(svcFactory *service.Factory) {
 	stdSrv = &http.Server{
 		Addr:        config.Endpoint,
 		ReadTimeout: 1 * time.Minute,
-		Handler:     handlers.RecoveryHandler()(newRouter(svcFactory)),
+		Handler:     handlers.RecoveryHandler(handlers.PrintRecoveryStack(true))(newChainedRouter(svcFactory)),
 	}
 
 	if err := stdSrv.ListenAndServe(); err != http.ErrServerClosed {

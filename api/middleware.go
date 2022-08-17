@@ -1,11 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"math"
 	"net/http"
+	"time"
 
 	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
 	"github.com/Conflux-Chain/web3pay-service/model"
@@ -14,6 +19,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/ybbus/jsonrpc/v3"
 )
 
 type reqCtxKey string
@@ -22,10 +28,11 @@ var (
 	ctxKeyRequestId    reqCtxKey = "reqId"
 	ctxKeyContractAddr reqCtxKey = "contractAddr"
 	ctxKeyCustomerAddr reqCtxKey = "customerAddr"
+	ctxKeyJsonRpcMsg   reqCtxKey = "jsonRpcMsg"
 )
 
-func requestIdFromContext(ctx context.Context) uint64 {
-	return ctx.Value(ctxKeyRequestId).(uint64)
+func requestIdFromContext(ctx context.Context) string {
+	return ctx.Value(ctxKeyRequestId).(string)
 }
 
 func contractAddrFromContext(ctx context.Context) common.Address {
@@ -36,26 +43,37 @@ func customerAddrFromContext(ctx context.Context) common.Address {
 	return ctx.Value(ctxKeyCustomerAddr).(common.Address)
 }
 
-func LogTracingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reqId := mathutil.RandUint64(uint64(math.MaxUint32))
-		newCtx := context.WithValue(r.Context(), ctxKeyRequestId, reqId)
+func jsonRpcMessageFromContext(ctx context.Context) *jsonrpc.RPCRequest {
+	if msg, ok := ctx.Value(ctxKeyJsonRpcMsg).(*jsonrpc.RPCRequest); ok {
+		return msg
+	}
 
-		newReq := r.WithContext(newCtx)
-		next.ServeHTTP(w, newReq)
-	})
+	return nil
+}
+
+func LogTracingMiddleware(prefix string) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			reqId := mathutil.RandUint64(uint64(math.MaxUint32))
+			newCtx := context.WithValue(r.Context(), ctxKeyRequestId, fmt.Sprintf("%v#%d", prefix, reqId))
+			newReq := r.WithContext(newCtx)
+			next.ServeHTTP(w, newReq)
+		})
+	}
 }
 
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logrus.WithFields(logrus.Fields{
-			"reqID":        requestIdFromContext(r.Context()),
-			"contractAddr": contractAddrFromContext(r.Context()),
-			"customerAddr": customerAddrFromContext(r.Context()),
-			"method":       r.Method,
-		}).Debug(r.RequestURI)
+		logger := logrus.WithFields(logrus.Fields{
+			"reqID":      requestIdFromContext(r.Context()),
+			"method":     r.Method,
+			"requestUri": r.RequestURI,
+		})
 
+		logger.Debug("RPC enter")
+		start := time.Now()
 		next.ServeHTTP(w, r)
+		logger.WithField("elapsed(ms)", time.Since(start).Milliseconds()).Debug("RPC leave")
 	})
 }
 
@@ -86,55 +104,111 @@ func parseAuthKey(r *http.Request, headerKey string) (*authKey, error) {
 	return &key, err
 }
 
-func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService) mux.MiddlewareFunc {
+type authErrorHandler func(ctx context.Context, w http.ResponseWriter, err error)
+
+func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler authErrorHandler) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
 			billingKey, err := parseAuthKey(r, "Billing-Key")
 			if err != nil {
 				err = errors.WithMessage(err, "billing key parsed error")
-				respJsonError(w, model.ErrAuth.WithData(err.Error()))
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			customerKey, err := parseAuthKey(r, "Customer-Key")
 			if err != nil {
 				err = errors.WithMessage(err, "customer key parse error")
-				respJsonError(w, model.ErrAuth.WithData(err.Error()))
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			// authenticate contract owner
 			if !common.IsHexAddress(billingKey.Msg) { // `msg` part must be a valid hex address
-				respJsonError(w, model.ErrAuth.WithData("invalid contract address"))
+				handler(ctx, w, model.ErrAuth.WithData("invalid contract address"))
 				return
 			}
 
 			ownerAddr, err := chainSvc.RecoverAddressBySignature(billingKey.Msg, billingKey.Sig)
 			if err != nil {
-				respJsonError(w, model.ErrAuth.WithData(err.Error()))
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			contract, owner := common.HexToAddress(billingKey.Msg), common.HexToAddress(ownerAddr)
 			if err := chainSvc.ValidateAppCoinOwner(contract, owner); err != nil {
-				respJsonError(w, model.ErrAuth.WithData(err.Error()))
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			// authenticate customer
 			customerAddr, err := chainSvc.RecoverAddressBySignature(customerKey.Msg, customerKey.Sig)
 			if err != nil {
-				respJsonError(w, model.ErrAuth.WithData(err.Error()))
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
 			customer := common.HexToAddress(customerAddr)
 
 			// fill info to new context
-			ctx := context.WithValue(r.Context(), ctxKeyContractAddr, contract)
+			ctx = context.WithValue(ctx, ctxKeyContractAddr, contract)
 			ctx = context.WithValue(ctx, ctxKeyCustomerAddr, customer)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func JsonRpcValidationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		var req struct {
+			jsonrpc.RPCRequest
+			ID *int `json:"id,omitempty"`
+		}
+
+		bodyData, err := jsonUnmarshalRequestBody(r.Body, &req)
+		if err != nil {
+			respJsonRpcError(ctx, w, errors.WithMessage(err, "failed to parse request body"))
+			return
+		}
+
+		if req.ID == nil {
+			err := errors.WithMessage(errors.New("id not provided"), "invalid JSON-RPC request")
+			respJsonRpcError(ctx, w, err)
+			return
+		}
+
+		if len(req.Method) == 0 {
+			err := errors.WithMessage(errors.New("method not provided"), "invalid JSON-RPC request")
+			respJsonRpcError(ctx, w, err)
+			return
+		}
+
+		// Set a new body with the same data we read before. This is crucial since we need to read it again later.
+		r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyData))
+
+		req.RPCRequest.ID = *req.ID
+		ctx = context.WithValue(ctx, ctxKeyJsonRpcMsg, &req.RPCRequest)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func jsonUnmarshalRequestBody(reqBody io.ReadCloser, ptr interface{}) ([]byte, error) {
+	bytes, err := ioutil.ReadAll(reqBody)
+	defer reqBody.Close()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal([]byte(bytes), ptr); err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
 }
