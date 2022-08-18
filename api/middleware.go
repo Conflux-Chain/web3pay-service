@@ -13,13 +13,13 @@ import (
 	"time"
 
 	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
+	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/ybbus/jsonrpc/v3"
 )
 
 type reqCtxKey string
@@ -77,18 +77,13 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-type authKey struct {
-	Msg string // signed message
-	Sig string // signature
-}
-
-func parseAuthKey(r *http.Request, headerKey string) (*authKey, error) {
+func parseAuthKey(r *http.Request, headerKey string) (*model.AuthKeyObject, error) {
 	keyJson, err := base64.StdEncoding.DecodeString(r.Header.Get(headerKey))
 	if err != nil {
 		return nil, errors.WithMessage(err, "base64 decode error")
 	}
 
-	var key authKey
+	var key model.AuthKeyObject
 	if err := json.Unmarshal(keyJson, &key); err != nil {
 		return nil, errors.WithMessage(err, "json decode error")
 	}
@@ -111,14 +106,14 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			billingKey, err := parseAuthKey(r, "Billing-Key")
+			billingKey, err := parseAuthKey(r, model.AuthHeaderBillingKey)
 			if err != nil {
 				err = errors.WithMessage(err, "billing key parsed error")
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
-			customerKey, err := parseAuthKey(r, "Customer-Key")
+			customerKey, err := parseAuthKey(r, model.AuthHeaderCustomerKey)
 			if err != nil {
 				err = errors.WithMessage(err, "customer key parse error")
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))

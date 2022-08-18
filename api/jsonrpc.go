@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/gorilla/rpc/v2"
 	gjson "github.com/gorilla/rpc/v2/json"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/ybbus/jsonrpc/v3"
 )
 
 type JrBillingApi struct {
@@ -26,8 +26,8 @@ func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequ
 	args.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{
-		"requestId": requestIdFromContext(ctx),
 		"args":      args,
+		"requestId": requestIdFromContext(ctx),
 	})
 
 	receipt, err := api.billingSvc.Charge(ctx, args)
