@@ -1,34 +1,32 @@
-package rpc
+package client
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/ybbus/jsonrpc/v3"
 )
 
-const (
-	jsonRpcMethodBillingCharge = "billing.Charge"
-)
-
-// ResourceIdMapper maps RPC method to resource ID
-type ResourceIdMapper func(method string) string
-
-// PaymentMwProvider payment middleware provider
+// PaymentMwProvider payment middleware provider, which provides middleware to interact with our Web3pay service.
 type PaymentMwProvider struct {
-	gateWayURL       string
-	client           jsonrpc.RPCClient
-	fallback         rpc.HandleCallMsgMiddleware
-	resourceIdMapper ResourceIdMapper
+	gateWayURL       string                      // gateway endpoint
+	billingKey       string                      // charge billing key
+	customerKey      CustomerKeyProvider         // customer key provider
+	client           jsonrpc.RPCClient           // JSON-RPC request client
+	fallback         rpc.HandleCallMsgMiddleware // fallback middleware if payment failed
+	resourceIdMapper ResourceIdMapper            // mapper to get resource ID from requested RPC method
 }
 
 // NewPaymentMwProvider new payment middleware provider
-func NewPaymentMwProvider(gateWayUrl string) (*PaymentMwProvider, error) {
+func NewPaymentMwProvider(appCoinContract, opPrivateKeyStr, gateWayUrl string) (*PaymentMwProvider, error) {
 	rpcClient := jsonrpc.NewClient(gateWayUrl)
 
 	// try to dial
@@ -39,8 +37,15 @@ func NewPaymentMwProvider(gateWayUrl string) (*PaymentMwProvider, error) {
 		return nil, errors.WithMessage(err, "failed to dial payment gateway")
 	}
 
+	// build initial billing key
+	billingKey, err := BuildBillingKey(appCoinContract, opPrivateKeyStr)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to build billing key")
+	}
+
 	return &PaymentMwProvider{
 		gateWayURL: gateWayUrl,
+		billingKey: billingKey,
 		client:     rpcClient,
 	}, nil
 }
@@ -73,9 +78,13 @@ func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.Hand
 		args.ResourceId = pmp.getResourceId(msg.Method)
 
 		// TODO: add auth headers
+		ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
+			model.AuthHeaderBillingKey:  "eyJtc2ciOiIweDQwYjg3OWFhOGIxQ2ZCRkY1NWU3ZmZFQUI4YzBiNTg4ZTU4NEMzNzIiLCJzaWciOiIweDQ4ZjVjMTI0MjUyYTFlYzEyN2MxMDJiMzRmMTdjMTM1MTRhYzQzNWFlMzVlNjU2MjRhYWFiMzIyMTI1MDNmZmYwYTMzYmQ5YjcwZTFmMzQ0NmNiMzE5N2M2MTEyYTkzNjcyYjA2NGM4ZTU2YWI4Yzg5ZTM0MWE1OTEzOWQ1YzhmMWIifQ==",
+			model.AuthHeaderCustomerKey: "eyJtc2ciOiIweDQwYjg3OWFhOGIxQ2ZCRkY1NWU3ZmZFQUI4YzBiNTg4ZTU4NEMzNzJfMTY2MDU1ODY2NzQzNCIsInNpZyI6IjB4NjY1MDg3YWQ2NWJjOWNhODNkYTBmOWIxNmM4YmNiMjNiNDkyYWZhYzU3ODliMTc1MmVmNjNhNmJiOTQyNjk3YzNmNDVmZDJkMmM5NDAzOGVlY2Q1ZDA0ZTVlZmNmNzY0NWVjYzljMjIxNzVmMGZmY2U5NTI3MTAzMTAwNjcxNWUxYyJ9",
+		})
 
 		// call payment gateway for billing charge
-		if err := pmp.client.CallFor(ctx, &reply, jsonRpcMethodBillingCharge, args); err != nil {
+		if err := pmp.client.CallFor(ctx, &reply, jsonRpcMethodBillingCharge, []interface{}{args}); err != nil {
 			logrus.WithField("args", args).
 				WithError(err).
 				Error("Billing charge middleware failed to request payment gateway")
@@ -110,4 +119,30 @@ func (pmp *PaymentMwProvider) BillingCharge(next rpc.HandleCallMsgFunc) rpc.Hand
 
 		return next(ctx, msg)
 	}
+}
+
+func BuildBillingKe2y(contract string, privateKeyStr string) (string, error) {
+	// load APP coin contract operator private key
+	privateKey, err := util.EcdsaPrivateKeyFromString(privateKeyStr)
+	if err != nil {
+		return "", err
+	}
+
+	// create signature
+	sig, _, err := util.PersonalSign(contract, privateKey)
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to create signature")
+	}
+
+	// json marshal auth key
+	authKeyJson, err := json.Marshal(model.AuthKeyObject{
+		Msg: contract, Sig: sig,
+	})
+	if err != nil {
+		return "", errors.WithMessage(err, "failed to json marshal key")
+	}
+
+	// base64 encoding auth key json
+	billKey := base64.StdEncoding.EncodeToString(authKeyJson)
+	return billKey, nil
 }
