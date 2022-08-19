@@ -18,7 +18,7 @@ type JrBillingApi struct {
 	billingSvc *service.BillingService
 }
 
-// JSON-RPC Billing API can be requested like:
+// JSON-RPC Billing charge API can be requested like:
 // {"jsonrpc":"2.0","method":"billing.Charge","params":[{ "dryRun": true, "resourceId": "default"}],"id":1}
 func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequest, reply **model.BusinessError) error {
 	ctx := r.Context()
@@ -44,6 +44,37 @@ func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequ
 	}
 
 	logger.WithField("receipt", receipt).Debug("Billing charge done")
+	*reply = model.ErrNil.WithData(receipt)
+
+	return nil
+}
+
+// JSON-RPC Billing batch charge API can be requested like:
+// {"jsonrpc":"2.0","method":"billing.ChargeBatch","params":[{ "dryRun": true, "resourceUses": {"default":1}}],"id":1}
+func (api *JrBillingApi) ChargeBatch(r *http.Request, args *service.BillingChargeBatchRequest, reply **model.BusinessError) error {
+	ctx := r.Context()
+	args.AppCoin = contractAddrFromContext(ctx)
+	args.Customer = customerAddrFromContext(ctx)
+
+	logger := logrus.WithFields(logrus.Fields{
+		"args":      args,
+		"requestId": requestIdFromContext(ctx),
+	})
+
+	receipt, err := api.billingSvc.ChargeBatch(ctx, args)
+	if err != nil {
+		logger.WithError(err).Debug("Billing charge batch failed")
+
+		if bizerr, ok := err.(*model.BusinessError); ok {
+			*reply = bizerr
+			return nil
+		}
+
+		*reply = model.ErrInternalServer.WithData(err.Error())
+		return nil
+	}
+
+	logger.WithField("receipt", receipt).Debug("Billing charge batch done")
 	*reply = model.ErrNil.WithData(receipt)
 
 	return nil

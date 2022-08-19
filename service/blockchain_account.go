@@ -149,7 +149,7 @@ func (svc *BlockchainService) WithholdAccountFee(appCoin, address common.Address
 		return false, nil
 	}
 
-	if account.TotalBalance().Cmp(amount) <= 0 {
+	if account.TotalBalance().Cmp(amount) < 0 {
 		return false, model.ErrInsufficentBalance
 	}
 
