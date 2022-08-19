@@ -12,29 +12,29 @@ import (
 )
 
 const (
-	KeyBillingChargeLocker = util.MutexKey("BillingChargeLocker")
+	KeyBillingLocker = util.MutexKey("BillingLocker")
 )
 
-type BillingChargeRequest struct {
+type BillingRequest struct {
 	ResourceId string         `json:"resourceId"`
 	DryRun     bool           `json:"dryRun"`
 	AppCoin    common.Address `json:"-"`
 	Customer   common.Address `json:"-"`
 }
 
-type BillingChargeReceipt struct {
+type BillingReceipt struct {
 	ResourceId string `json:"resourceId"`
 	Fee        string `json:"fee"`
 }
 
-type BillingChargeBatchRequest struct {
+type BillingBatchRequest struct {
 	ResourceUses map[string]int64 `json:"resourceUses"`
 	DryRun       bool             `json:"dryRun"`
 	AppCoin      common.Address   `json:"-"`
 	Customer     common.Address   `json:"-"`
 }
 
-type BillingChargeBatchReceipt struct {
+type BillingBatchReceipt struct {
 	ResourceFees map[string]decimal.Decimal `json:"resourceFees"`
 }
 
@@ -53,7 +53,7 @@ func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainServ
 	}
 }
 
-func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBatchRequest) (*BillingChargeBatchReceipt, error) {
+func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchRequest) (*BillingBatchReceipt, error) {
 	var totalCost decimal.Decimal
 	resourceCosts := make(map[string]decimal.Decimal)
 	statements := make(map[uint32]int64)
@@ -64,7 +64,7 @@ func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBat
 			logrus.WithFields(logrus.Fields{
 				"resourceId": resourceId,
 				"appCoin":    req.AppCoin,
-			}).WithError(err).Debug("Billing charge failed to retrieve APP coin resource")
+			}).WithError(err).Debug("Failed to retrieve APP coin resource for billing")
 			return nil, err
 		}
 
@@ -82,15 +82,15 @@ func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBat
 		"resourceCosts": resourceCosts,
 	})
 
-	if totalCost.IsZero() { // no fee charged
-		logger.Debug("Billing charge skipped with no fee to be charged")
-		return &BillingChargeBatchReceipt{ResourceFees: resourceCosts}, nil
+	if totalCost.IsZero() { // no fee to be billed?
+		logger.Debug("Billing skipped with no fee")
+		return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
 	}
 
 	// get account status
 	appCoinAccount, err := bs.chainSvc.GetOrFetchAccountStatus(req.AppCoin, req.Customer)
 	if err != nil {
-		logger.WithError(err).Info("Billing charge failed to get account status")
+		logger.WithError(err).Info("Billing failed to get account status")
 		return nil, err
 	}
 
@@ -98,23 +98,23 @@ func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBat
 
 	// account frozen?
 	if appCoinAccount.IsFrozen() {
-		logger.Debug("Billing charge skipped due to customer account frozen")
+		logger.Debug("Billing skipped due to customer account frozen")
 		return nil, model.ErrAccountAddrFrozen
 	}
 
 	// insufficient balance?
 	if appCoinAccount.TotalBalance().Cmp(totalCost.BigInt()) < 0 {
-		logger.Debug("Billing charge skipped due to insufficient balance")
+		logger.Debug("Billing skipped due to insufficient balance")
 		return nil, model.ErrInsufficentBalance
 	}
 
 	if req.DryRun { // for simulation only?
-		logger.Debug("Billing charge skipped for dry run")
-		return &BillingChargeBatchReceipt{ResourceFees: resourceCosts}, nil
+		logger.Debug("Billing skipped for dry run")
+		return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
 	}
 
-	util.KLock(KeyBillingChargeLocker)
-	defer util.KUnlock(KeyBillingChargeLocker)
+	util.KLock(KeyBillingLocker)
+	defer util.KUnlock(KeyBillingLocker)
 
 	coin, addr := appCoinAccount.Coin, appCoinAccount.Address
 	if err = bs.sqliteStore.Transaction(func(tx *gorm.DB) error {
@@ -122,13 +122,13 @@ func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBat
 
 		bill, err := bs.sqliteStore.UpsertBill(tx, coin, addr, fee)
 		if err != nil {
-			logger.WithError(err).Error("Billing charge failed to upsert bill")
+			logger.WithError(err).Error("Billing failed to upsert bill")
 			return err
 		}
 
 		deducted, err := bs.chainSvc.WithholdAccountFee(req.AppCoin, req.Customer, fee)
 		if err != nil {
-			logger.WithError(err).Error("Billing charge failed to withhold account fee")
+			logger.WithError(err).Error("Billing failed to withhold account fee")
 			return err
 		}
 
@@ -141,11 +141,11 @@ func (bs *BillingService) ChargeBatch(ctx context.Context, req *BillingChargeBat
 		return nil, err
 	}
 
-	return &BillingChargeBatchReceipt{ResourceFees: resourceCosts}, nil
+	return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
 }
 
-func (bs *BillingService) Charge(ctx context.Context, req *BillingChargeRequest) (*BillingChargeReceipt, error) {
-	batchReceipt, err := bs.ChargeBatch(ctx, &BillingChargeBatchRequest{
+func (bs *BillingService) Bill(ctx context.Context, req *BillingRequest) (*BillingReceipt, error) {
+	batchReceipt, err := bs.BillBatch(ctx, &BillingBatchRequest{
 		ResourceUses: map[string]int64{req.ResourceId: 1},
 		DryRun:       req.DryRun,
 		AppCoin:      req.AppCoin,
@@ -156,7 +156,7 @@ func (bs *BillingService) Charge(ctx context.Context, req *BillingChargeRequest)
 	}
 
 	for resourceId, fee := range batchReceipt.ResourceFees {
-		return &BillingChargeReceipt{
+		return &BillingReceipt{
 			ResourceId: resourceId,
 			Fee:        fee.String(),
 		}, nil

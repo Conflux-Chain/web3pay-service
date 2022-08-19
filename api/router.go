@@ -44,7 +44,7 @@ func newRestfulRouter(svcFactory *service.Factory) *mux.Router {
 	r.Use(AuthMiddleware(r, svcFactory.Blockchain, respJsonError))
 
 	billingCtr := NewBillingController(svcFactory.Billing)
-	r.HandleFunc("/billing", Wrap(billingCtr.Charge, "web3pay/api/billing")).
+	r.HandleFunc("/billing", Wrap(billingCtr.Bill, "web3pay/api/billing")).
 		Methods("POST").
 		Headers("Content-Type", "application/json")
 

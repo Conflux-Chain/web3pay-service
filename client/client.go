@@ -15,16 +15,18 @@ import (
 )
 
 const (
-	jsonRpcMethodBillingCharge = "billing.Charge"
+	jrpcMethodBilling      = "web3pay.Bill"
+	jrpcMethodBillingBatch = "web3pay.BillBatch"
 )
 
 type ClientOption struct {
 	BillingKey string        // billing auth key
-	Timeout    time.Duration // request gateway timeout
+	Timeout    time.Duration // request timeout
+	PingTest   bool          // test ping gateway?
 }
 
 type Client struct {
-	jsonrpc.RPCClient // JSON-RPC request client
+	jrpcClient jsonrpc.RPCClient // JSON-RPC request client
 }
 
 func NewClientWithOption(gateWayUrl string, option ClientOption) (*Client, error) {
@@ -35,63 +37,116 @@ func NewClientWithOption(gateWayUrl string, option ClientOption) (*Client, error
 		},
 	})
 
-	// try to dial
-	if _, err := rpcClient.Call(context.Background(), jsonRpcMethodBillingCharge); err != nil {
-		return nil, errors.WithMessage(err, "failed to dial payment gateway")
+	if option.PingTest {
+		// test ping
+		_, err := rpcClient.Call(context.Background(), jrpcMethodBilling)
+		if err != nil {
+			return nil, errors.WithMessage(err, "failed to dial payment gateway")
+		}
 	}
 
-	return &Client{RPCClient: rpcClient}, nil
+	return &Client{jrpcClient: rpcClient}, nil
 }
 
-func (c *Client) ChargeBilling(
-	ctx context.Context, resourceId string, dryRun bool, customerKey string) (*service.BillingChargeReceipt, error) {
-	args := service.BillingChargeRequest{ResourceId: resourceId}
+func (c *Client) Bill(
+	ctx context.Context, resourceId string, dryRun bool, customerKey string) (*service.BillingReceipt, error) {
+
 	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
 		model.AuthHeaderCustomerKey: customerKey,
 	})
 
-	// call payment gateway for billing charge
+	args := &service.BillingRequest{
+		DryRun:     dryRun,
+		ResourceId: resourceId,
+	}
+
+	reply, err := c.doCall(ctx, jrpcMethodBilling, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var receipt service.BillingReceipt
+	if err := reply.GetObject(&receipt); err != nil {
+		return nil, errors.WithMessage(err, "failed to convert bill receipt")
+	}
+
+	return &receipt, nil
+}
+
+func (c *Client) BillBatch(
+	ctx context.Context, resourceUses map[string]int64, dryRun bool, customerKey string) (*service.BillingBatchReceipt, error) {
+
+	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
+		model.AuthHeaderCustomerKey: customerKey,
+	})
+
+	args := &service.BillingBatchRequest{
+		DryRun:       dryRun,
+		ResourceUses: resourceUses,
+	}
+
+	reply, err := c.doCall(ctx, jrpcMethodBillingBatch, args)
+	if err != nil {
+		return nil, err
+	}
+
+	var receipt service.BillingBatchReceipt
+	if err := reply.GetObject(&receipt); err != nil {
+		return nil, errors.WithMessage(err, "failed to convert bill batch receipt")
+	}
+
+	return &receipt, nil
+}
+
+func (c *Client) doCall(ctx context.Context, method string, args interface{}) (*model.BusinessError, error) {
 	var reply *model.BusinessError
-	if err := c.CallFor(ctx, &reply, jsonRpcMethodBillingCharge, []interface{}{args}); err != nil {
+
+	// call payment gateway
+	if err := c.jrpcClient.CallFor(ctx, &reply, method, []interface{}{args}); err != nil {
 		logrus.WithField("args", args).
 			WithError(err).
-			Error("Web3pay client failed to request payment gateway")
+			Debug("Web3Pay client failed to request payment gateway")
 		return nil, errors.WithMessage(err, "failed to request payment gateway")
 	}
 
-	// handle business error for payment gateway
+	// handle business error
 	if reply.Code != model.ErrNil.Code {
 		logrus.WithFields(logrus.Fields{
 			"args":       args,
 			"errCode":    reply.Code,
 			"errMessage": reply.Message,
 			"errData":    reply.Data,
-		}).Debug("Web3pay client failed to billing charge from payment gateway")
-
-		return nil, errors.WithMessage(reply, "failed to billing charge from payment gateway")
+		}).Debug("Web3Pay client encountered internal business error")
+		return nil, errors.WithMessage(reply, "internal business error")
 	}
 
-	return reply.Data.(*service.BillingChargeReceipt), nil
+	return reply, nil
 }
 
-// BuildBillingKey utility function to help build billing key with specified APP coin
-// contract address and its owner private key text.
-func BuildBillingKey(appCoin string, ownerPrivateKeyText string) (string, error) {
-	// load APP coin contract owner private key
-	privateKey, err := util.EcdsaPrivateKeyFromString(ownerPrivateKeyText)
+// BuildBillingKey utility function to help build billing key with specified
+// APP coin contract address and its owner private key text.
+func BuildBillingKey(appCoinContract string, ownerPrivateKeyText string) (string, error) {
+	return BuildAuthKey(appCoinContract, ownerPrivateKeyText)
+}
+
+// BuildAuthKey utility function to help build auth key with specific message
+// signatured with some private key text.
+func BuildAuthKey(message string, privateKeyText string) (string, error) {
+	// load private key
+	privateKey, err := util.EcdsaPrivateKeyFromString(privateKeyText)
 	if err != nil {
 		return "", err
 	}
 
 	// create signature
-	sig, _, err := util.PersonalSign(appCoin, privateKey)
+	sig, _, err := util.PersonalSign(message, privateKey)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to create signature")
 	}
 
 	// json marshal auth key
 	authKeyObj, err := json.Marshal(model.AuthKeyObject{
-		Msg: appCoin, Sig: sig,
+		Msg: message, Sig: sig,
 	})
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to json marshal auth key object")
