@@ -1,5 +1,7 @@
 package model
 
+import "encoding/json"
+
 var (
 	// general error
 	ErrNil            = &BusinessError{Code: 0, Message: "OK"}
@@ -29,4 +31,21 @@ func (be *BusinessError) WithData(data interface{}) *BusinessError {
 
 func (err *BusinessError) Error() string {
 	return err.Message
+}
+
+// GetObject converts the business error data to an arbitrary type.
+//
+// The function works as you would expect it from json.Unmarshal()
+func (be *BusinessError) GetObject(toType interface{}) error {
+	js, err := json.Marshal(be.Data)
+	if err != nil {
+		return err
+	}
+
+	err = json.Unmarshal(js, toType)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -207,8 +207,8 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 		}).Debug("Blockchain worker written off bill fee")
 	}
 
-	util.KLock(service.KeyBillingChargeLocker)
-	defer util.KUnlock(service.KeyBillingChargeLocker)
+	util.KLock(service.KeyBillingLocker)
+	defer util.KUnlock(service.KeyBillingLocker)
 
 	if err := worker.sqliteStore.Delete(&model.Bill{}, delBillIds).Error; err != nil {
 		logrus.WithField("delBillIds", delBillIds).
@@ -339,8 +339,8 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 }
 
 func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status uint8) {
-	util.KLock(service.KeyBillingChargeLocker)
-	defer util.KUnlock(service.KeyBillingChargeLocker)
+	util.KLock(service.KeyBillingLocker)
+	defer util.KUnlock(service.KeyBillingLocker)
 
 	for i := range tasks {
 		tasks[i].Status = status
@@ -379,8 +379,8 @@ func (w *BlockchainWorker) pollOnce() error {
 		return nil
 	}
 
-	util.KLock(service.KeyBillingChargeLocker)
-	defer util.KUnlock(service.KeyBillingChargeLocker)
+	util.KLock(service.KeyBillingLocker)
+	defer util.KUnlock(service.KeyBillingLocker)
 
 	var bills []*model.Bill
 	db := w.sqliteStore.Order("id ASC").Limit(pollingBatchSize)

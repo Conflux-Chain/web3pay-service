@@ -18,9 +18,9 @@ type JrBillingApi struct {
 	billingSvc *service.BillingService
 }
 
-// JSON-RPC Billing charge API can be requested like:
-// {"jsonrpc":"2.0","method":"billing.Charge","params":[{ "dryRun": true, "resourceId": "default"}],"id":1}
-func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequest, reply **model.BusinessError) error {
+// JSON-RPC billing API can be requested like:
+// {"jsonrpc":"2.0","method":"web3pay.Bill","params":[{ "dryRun": true, "resourceId": "default"}],"id":1}
+func (api *JrBillingApi) Bill(r *http.Request, args *service.BillingRequest, reply **model.BusinessError) error {
 	ctx := r.Context()
 	args.AppCoin = contractAddrFromContext(ctx)
 	args.Customer = customerAddrFromContext(ctx)
@@ -30,9 +30,9 @@ func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequ
 		"requestId": requestIdFromContext(ctx),
 	})
 
-	receipt, err := api.billingSvc.Charge(ctx, args)
+	receipt, err := api.billingSvc.Bill(ctx, args)
 	if err != nil {
-		logger.WithError(err).Debug("Billing charge failed")
+		logger.WithError(err).Debug("Billing failed")
 
 		if bizerr, ok := err.(*model.BusinessError); ok {
 			*reply = bizerr
@@ -43,15 +43,15 @@ func (api *JrBillingApi) Charge(r *http.Request, args *service.BillingChargeRequ
 		return nil
 	}
 
-	logger.WithField("receipt", receipt).Debug("Billing charge done")
+	logger.WithField("receipt", receipt).Debug("Billing done")
 	*reply = model.ErrNil.WithData(receipt)
 
 	return nil
 }
 
-// JSON-RPC Billing batch charge API can be requested like:
-// {"jsonrpc":"2.0","method":"billing.ChargeBatch","params":[{ "dryRun": true, "resourceUses": {"default":1}}],"id":1}
-func (api *JrBillingApi) ChargeBatch(r *http.Request, args *service.BillingChargeBatchRequest, reply **model.BusinessError) error {
+// JSON-RPC billing batch API can be requested like:
+// {"jsonrpc":"2.0","method":"web3pay.BillBatch","params":[{ "dryRun": true, "resourceUses": {"default":1}}],"id":1}
+func (api *JrBillingApi) BillBatch(r *http.Request, args *service.BillingBatchRequest, reply **model.BusinessError) error {
 	ctx := r.Context()
 	args.AppCoin = contractAddrFromContext(ctx)
 	args.Customer = customerAddrFromContext(ctx)
@@ -61,9 +61,9 @@ func (api *JrBillingApi) ChargeBatch(r *http.Request, args *service.BillingCharg
 		"requestId": requestIdFromContext(ctx),
 	})
 
-	receipt, err := api.billingSvc.ChargeBatch(ctx, args)
+	receipt, err := api.billingSvc.BillBatch(ctx, args)
 	if err != nil {
-		logger.WithError(err).Debug("Billing charge batch failed")
+		logger.WithError(err).Debug("Billing batch failed")
 
 		if bizerr, ok := err.(*model.BusinessError); ok {
 			*reply = bizerr
@@ -74,7 +74,7 @@ func (api *JrBillingApi) ChargeBatch(r *http.Request, args *service.BillingCharg
 		return nil
 	}
 
-	logger.WithField("receipt", receipt).Debug("Billing charge batch done")
+	logger.WithField("receipt", receipt).Debug("Billing batch done")
 	*reply = model.ErrNil.WithData(receipt)
 
 	return nil
@@ -86,7 +86,7 @@ func newJsonRpcServer(svcFactory *service.Factory) *rpc.Server {
 
 	// Register the type of data requested as JSON
 	srv.RegisterCodec(gjson.NewCodec(), "application/json")
-	srv.RegisterService(&JrBillingApi{billingSvc: svcFactory.Billing}, "billing")
+	srv.RegisterService(&JrBillingApi{billingSvc: svcFactory.Billing}, "web3pay")
 
 	return srv
 }

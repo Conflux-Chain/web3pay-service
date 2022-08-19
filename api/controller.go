@@ -21,8 +21,8 @@ func NewBillingController(billingSvc *service.BillingService) *BillingController
 	return &BillingController{billingSvc: billingSvc}
 }
 
-func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
-	var cr service.BillingChargeRequest
+func (bc *BillingController) Bill(hc *handlerContext) (interface{}, error) {
+	var cr service.BillingRequest
 	if _, err := jsonUnmarshalRequestBody(hc.r.Body, &cr); err != nil {
 		return nil, model.ErrValidation.WithData(err.Error())
 	}
@@ -33,17 +33,17 @@ func (bc *BillingController) Charge(hc *handlerContext) (interface{}, error) {
 	cr.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{
-		"chargeRequest": cr,
-		"requestId":     reqId,
+		"billRequest": cr,
+		"requestId":   reqId,
 	})
 
-	receipt, err := bc.billingSvc.Charge(ctx, &cr)
+	receipt, err := bc.billingSvc.Bill(ctx, &cr)
 	if err != nil {
-		logger.WithError(err).Debug("Billing charge failed")
+		logger.WithError(err).Debug("Billing failed")
 		return nil, err
 	}
 
-	logger.WithField("receipt", receipt).Debug("Billing charge done")
+	logger.WithField("receipt", receipt).Debug("Billing done")
 	return receipt, nil
 }
 
