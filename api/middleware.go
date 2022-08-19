@@ -73,7 +73,7 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		logger.Debug("RPC enter")
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		logger.WithField("elapsed(ms)", time.Since(start).Milliseconds()).Debug("RPC leave")
+		logger.WithField("elapsed", time.Since(start)).Debug("RPC leave")
 	})
 }
 
