@@ -19,25 +19,29 @@ const (
 	jrpcMethodBillingBatch = "web3pay.BillBatch"
 )
 
-type ClientOption struct {
+type ClientConfig struct {
+	Gateway    string        // API gateway endpoint
 	BillingKey string        // billing auth key
-	Timeout    time.Duration // request timeout
 	PingTest   bool          // test ping gateway?
+	Timeout    time.Duration // request timeout
 }
 
 type Client struct {
+	*ClientConfig
 	jrpcClient jsonrpc.RPCClient // JSON-RPC request client
 }
 
-func NewClientWithOption(gateWayUrl string, option ClientOption) (*Client, error) {
-	rpcClient := jsonrpc.NewClientWithOpts(gateWayUrl, &jsonrpc.RPCClientOpts{
-		Timeout: option.Timeout,
-		CustomHeaders: map[string]string{
-			model.AuthHeaderBillingKey: option.BillingKey,
+func NewClient(conf *ClientConfig) (*Client, error) {
+	rpcClient := jsonrpc.NewClientWithOpts(conf.Gateway,
+		&jsonrpc.RPCClientOpts{
+			Timeout: conf.Timeout,
+			CustomHeaders: map[string]string{
+				model.AuthHeaderBillingKey: conf.BillingKey,
+			},
 		},
-	})
+	)
 
-	if option.PingTest {
+	if conf.PingTest {
 		// test ping
 		_, err := rpcClient.Call(context.Background(), jrpcMethodBilling)
 		if err != nil {
@@ -45,7 +49,11 @@ func NewClientWithOption(gateWayUrl string, option ClientOption) (*Client, error
 		}
 	}
 
-	return &Client{jrpcClient: rpcClient}, nil
+	client := &Client{
+		ClientConfig: conf,
+		jrpcClient:   rpcClient,
+	}
+	return client, nil
 }
 
 func (c *Client) Bill(
