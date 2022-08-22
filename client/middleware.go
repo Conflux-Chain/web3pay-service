@@ -2,137 +2,85 @@ package client
 
 import (
 	"context"
-	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
+)
+
+type CtxKey string
+
+const (
+	CtxKeyBillingStatus = CtxKey("Web3Pay-Billing-Status")
 )
 
 var (
-	errCustomerKeyNotProvided = errors.New("web3pay customer key not provided")
+	errCustomerKeyNotProvided = errors.New("customer key not provided")
 )
 
-// authKeyProvider provides auth key from context value
-type authKeyProvider func(ctx context.Context) (string, bool)
-
-type RpcMiddlewareProviderOption struct {
-	// request timeout to payment gateway
-	Timeout time.Duration
-
-	// web3pay billing key
-	BillingKey string
-	// web3pay customer key getter
-	CustomerKey authKeyProvider
-
-	// fallback for billing middleware on failure
-	BillingFallbackMw      rpc.HandleCallMsgMiddleware
-	BillingBatchFallbackMw rpc.HandleBatchMiddleware
+// BillingStatus billing result
+type BillingStatus struct {
+	Data  interface{}
+	Error error
 }
 
-// RpcMiddlewareProvider provides RPC middleware for openweb3.
-type RpcMiddlewareProvider struct {
-	RpcMiddlewareProviderOption
-	client *Client
+func NewBillingStatusWithError(err error) *BillingStatus {
+	return &BillingStatus{Error: err}
 }
 
-func NewRpcMiddlewareProvider(
-	paymentGateway string, option RpcMiddlewareProviderOption) (*RpcMiddlewareProvider, error) {
-
-	// new web3pay client
-	client, err := NewClientWithOption(paymentGateway, ClientOption{
-		BillingKey: option.BillingKey,
-		Timeout:    option.Timeout,
-	})
-
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to create web3pay client")
-	}
-
-	provider := &RpcMiddlewareProvider{
-		RpcMiddlewareProviderOption: option,
-		client:                      client,
-	}
-	return provider, nil
+func NewBillingStatusWithReceipt(data interface{}) *BillingStatus {
+	return &BillingStatus{Data: data}
 }
 
-// BillingMiddleware provides fee billing middleware.
-func (p *RpcMiddlewareProvider) BillingMiddleware(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
-	// fallback handler if billing failed
-	fbhandler := func(ctx context.Context, msg *rpc.JsonRpcMessage, err error) *rpc.JsonRpcMessage {
-		logger := logrus.WithField("method", msg.Method).WithError(err)
-
-		if p.BillingFallbackMw != nil {
-			logger.Debug("Billing middleware switching over to fallback middleware on failure")
-			return p.BillingFallbackMw(next)(ctx, msg)
-		}
-
-		logger.Debug("Billing middleware billing failed")
-		return msg.ErrorResponse(err)
-	}
-
-	return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
-		customerKey, ok := p.CustomerKey(ctx)
-		if !ok { // customer key provided?
-			return fbhandler(ctx, msg, errCustomerKeyNotProvided)
-		}
-
-		receipt, err := p.client.Bill(ctx, msg.Method, false, customerKey)
-		if err != nil { // billing failed?
-			return fbhandler(ctx, msg, errors.WithMessage(err, "web3pay billing failure"))
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"receipt": receipt,
-			"method":  msg.Method,
-		}).Debug("Billing middleware billing ok")
-
-		return next(ctx, msg)
-	}
+// Success checks if billing succeeded
+func (bs *BillingStatus) Success() bool {
+	return bs.Error == nil
 }
 
-// BillingMiddleware provides batch fee billing middleware.
-func (p *RpcMiddlewareProvider) BillingBatchMiddleware(next rpc.HandleBatchFunc) rpc.HandleBatchFunc {
-	// fallback handler if billing failed
-	fbhandler := func(ctx context.Context, msgs []*rpc.JsonRpcMessage, err error) []*rpc.JsonRpcMessage {
-		logger := logrus.WithField("batch", len(msgs)).WithError(err)
-
-		if p.BillingBatchFallbackMw != nil {
-			logger.Debug("Billing middleware switching over to fallback middleware on failure")
-			return p.BillingBatchFallbackMw(next)(ctx, msgs)
-		}
-
-		var responses []*rpc.JsonRpcMessage
-		for _, v := range msgs {
-			responses = append(responses, v.ErrorResponse(err))
-		}
-
-		logger.Debug("Billing middleware billing failed")
-		return responses
+// BusinessError returns business error as it is otherwise nil
+func (bs *BillingStatus) BusinessError() (*model.BusinessError, bool) {
+	var bzerr model.BusinessError
+	if errors.As(bs.Error, &bzerr) {
+		return &bzerr, true
 	}
 
-	return func(ctx context.Context, msgs []*rpc.JsonRpcMessage) []*rpc.JsonRpcMessage {
-		customerKey, ok := p.CustomerKey(ctx)
-		if !ok { // customer key provided?
-			return fbhandler(ctx, msgs, errCustomerKeyNotProvided)
+	return nil, false
+}
+
+// Receipt returns billing receipt
+func (bs *BillingStatus) Receipt() (*service.BillingReceipt, bool) {
+	receipt, ok := bs.Data.(*service.BillingReceipt)
+	return receipt, ok
+}
+
+// BillingStatusFromContext returns billing status from context
+func BillingStatusFromContext(ctx context.Context) (*BillingStatus, bool) {
+	bs, ok := ctx.Value(CtxKeyBillingStatus).(*BillingStatus)
+	return bs, ok
+}
+
+// BillingMiddleware provides billing RPC middleware for openweb3
+func BillingMiddleware(client *Client, customerKeyProvider func(ctx context.Context) (string, bool)) rpc.HandleCallMsgMiddleware {
+	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
+		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, bs *BillingStatus) *rpc.JsonRpcMessage {
+			ctx = context.WithValue(ctx, CtxKeyBillingStatus, bs)
+			return next(ctx, msg)
 		}
 
-		// collect RPC method uses
-		msgCalls := make(map[string]int64)
-		for i := range msgs {
-			msgCalls[msgs[i].Method]++
+		return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
+			customerKey, ok := customerKeyProvider(ctx)
+			if !ok { // customer key provided?
+				return wrapup(ctx, msg, NewBillingStatusWithError(errCustomerKeyNotProvided))
+			}
+
+			receipt, err := client.Bill(ctx, msg.Method, false, customerKey)
+			if err != nil { // billing failed?
+				err = errors.WithMessage(err, "web3pay billing failed")
+				return wrapup(ctx, msg, NewBillingStatusWithError(err))
+			}
+
+			return wrapup(ctx, msg, NewBillingStatusWithReceipt(receipt))
 		}
-
-		receipt, err := p.client.BillBatch(ctx, msgCalls, true, customerKey)
-		if err != nil { // batch billing failed?
-			return fbhandler(ctx, msgs, errors.WithMessage(err, "web3pay billing failure"))
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"receipt": receipt,
-			"batch":   len(msgs),
-		}).Debug("Billing middleware billing ok")
-
-		return next(ctx, msgs)
 	}
 }
