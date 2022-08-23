@@ -10,6 +10,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/Conflux-Chain/web3pay-service/util"
+	"github.com/mcuadros/go-defaults"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -23,7 +24,7 @@ type ClientConfig struct {
 	Gateway    string        // API gateway endpoint
 	BillingKey string        // billing auth key
 	PingTest   bool          // test ping gateway?
-	Timeout    time.Duration // request timeout
+	Timeout    time.Duration `default:"200ms"` // request timeout, default 200ms
 }
 
 type Client struct {
@@ -31,7 +32,9 @@ type Client struct {
 	jrpcClient jsonrpc.RPCClient // JSON-RPC request client
 }
 
-func NewClient(conf *ClientConfig) (*Client, error) {
+func NewClient(conf ClientConfig) (*Client, error) {
+	defaults.SetDefaults(&conf)
+
 	rpcClient := jsonrpc.NewClientWithOpts(conf.Gateway,
 		&jsonrpc.RPCClientOpts{
 			Timeout: conf.Timeout,
@@ -50,7 +53,7 @@ func NewClient(conf *ClientConfig) (*Client, error) {
 	}
 
 	client := &Client{
-		ClientConfig: conf,
+		ClientConfig: &conf,
 		jrpcClient:   rpcClient,
 	}
 	return client, nil

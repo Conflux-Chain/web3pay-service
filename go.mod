@@ -12,6 +12,7 @@ require (
 	github.com/gorilla/rpc v1.2.0
 	github.com/hashicorp/go-memdb v1.3.3
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
+	github.com/mcuadros/go-defaults v1.2.0
 	github.com/openweb3/go-rpc-provider v0.2.8
 	github.com/openweb3/web3go v0.2.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -63,7 +64,6 @@ require (
 	github.com/mattn/go-isatty v0.0.14 // indirect
 	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/mattn/go-sqlite3 v1.14.12 // indirect
-	github.com/mcuadros/go-defaults v1.2.0 // indirect
 	github.com/miguelmota/go-ethereum-hdwallet v0.1.1 // indirect
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
