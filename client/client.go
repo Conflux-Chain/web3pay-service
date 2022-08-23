@@ -71,14 +71,9 @@ func (c *Client) Bill(
 		ResourceId: resourceId,
 	}
 
-	reply, err := c.doCall(ctx, jrpcMethodBilling, args)
-	if err != nil {
-		return nil, err
-	}
-
 	var receipt service.BillingReceipt
-	if err := reply.GetObject(&receipt); err != nil {
-		return nil, errors.WithMessage(err, "failed to convert bill receipt")
+	if err := c.doCall(ctx, &receipt, jrpcMethodBilling, args); err != nil {
+		return nil, err
 	}
 
 	return &receipt, nil
@@ -96,20 +91,15 @@ func (c *Client) BillBatch(
 		ResourceUses: resourceUses,
 	}
 
-	reply, err := c.doCall(ctx, jrpcMethodBillingBatch, args)
-	if err != nil {
-		return nil, err
-	}
-
 	var receipt service.BillingBatchReceipt
-	if err := reply.GetObject(&receipt); err != nil {
-		return nil, errors.WithMessage(err, "failed to convert bill batch receipt")
+	if err := c.doCall(ctx, &receipt, jrpcMethodBillingBatch, args); err != nil {
+		return nil, err
 	}
 
 	return &receipt, nil
 }
 
-func (c *Client) doCall(ctx context.Context, method string, args interface{}) (*model.BusinessError, error) {
+func (c *Client) doCall(ctx context.Context, out interface{}, method string, args interface{}) error {
 	var reply *model.BusinessError
 
 	// call payment gateway
@@ -117,7 +107,7 @@ func (c *Client) doCall(ctx context.Context, method string, args interface{}) (*
 		logrus.WithField("args", args).
 			WithError(err).
 			Debug("Web3Pay client failed to request payment gateway")
-		return nil, errors.WithMessage(err, "failed to request payment gateway")
+		return errors.WithMessage(err, "failed to request payment gateway")
 	}
 
 	// handle business error
@@ -128,10 +118,10 @@ func (c *Client) doCall(ctx context.Context, method string, args interface{}) (*
 			"errMessage": reply.Message,
 			"errData":    reply.Data,
 		}).Debug("Web3Pay client encountered internal business error")
-		return nil, errors.WithMessage(reply, "internal business error")
+		return errors.WithMessage(reply, "internal business error")
 	}
 
-	return reply, nil
+	return reply.GetObject(out)
 }
 
 // BuildBillingKey utility function to help build billing key with specified

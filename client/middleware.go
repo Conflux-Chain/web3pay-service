@@ -16,7 +16,7 @@ const (
 )
 
 var (
-	errCustomerKeyNotProvided = errors.New("customer key not provided")
+	errCustomerKeyNotProvided = model.ErrAuth.WithData("customer key not provided")
 )
 
 // BillingStatus billing result
@@ -36,6 +36,20 @@ func NewBillingStatusWithReceipt(data interface{}) *BillingStatus {
 // Success checks if billing succeeded
 func (bs *BillingStatus) Success() bool {
 	return bs.Error == nil
+}
+
+// InternalServerError return internal server error as it is otherwise nil
+func (bs *BillingStatus) InternalServerError() (error, bool) {
+	if bs.Error == nil {
+		return nil, false
+	}
+
+	bzerr, ok := bs.BusinessError()
+	if !ok || bzerr.Code == model.ErrInternalServer.Code {
+		return bs.Error, true
+	}
+
+	return nil, false
 }
 
 // BusinessError returns business error as it is otherwise nil
