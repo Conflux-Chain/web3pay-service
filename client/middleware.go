@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
@@ -16,6 +17,7 @@ type CtxKey string
 const (
 	// context key
 	CtxKeyBillingStatus = CtxKey("Web3Pay-Billing-Status")
+	CtxCustomerKey      = CtxKey("Web3Pay-Customer-Key")
 
 	// default customer key LRU cache size
 	customerKeyCacheSize = 2000
@@ -82,22 +84,53 @@ func BillingStatusFromContext(ctx context.Context) (*BillingStatus, bool) {
 	return bs, ok
 }
 
+// authKeyProvider retrieves auth key from context
 type authKeyProvider func(ctx context.Context) (string, bool)
 
-// BillingMiddleware provides billing RPC middleware for openweb3.
-//
-// Parameter `ignoreInternalGatewayError` toggles whether to ignore internal gateway error for already billed users, default as true.
-// This is usually used to mitigate side effects such as blocking paid user from access due to internal server errors.
-func BillingMiddleware(
-	client *Client, customerKeyProvider authKeyProvider, ignoreInternalGatewayError ...bool) rpc.HandleCallMsgMiddleware {
+type BillingMiddlewareOption struct {
+	// we3pay client to request billing gateway (mandatory)
+	Client *Client
+	// provider to get customer key from context, use `GetCustomerKeyFromContext` if not provided
+	CustomerKeyProvider authKeyProvider
+	// whether to propagate internal server errors of the requested billing gateway
+	// to the already billed users, default as false which will pretend nothing wrong
+	// happened except some error logs will be printed. This is usually used to mitigate
+	// side effects such as blocking paid user from access due to internal server errors.
+	PropagateInternalServerError bool
+}
 
-	ignoreInternalServerError := true
-	if len(ignoreInternalGatewayError) > 0 {
-		ignoreInternalServerError = ignoreInternalGatewayError[0]
+func initDefault(option *BillingMiddlewareOption) {
+	if option.CustomerKeyProvider == nil {
+		option.CustomerKeyProvider = GetCustomerKeyFromContext
 	}
+}
+
+// providing openweb3 middleware
+
+type Ow3Middleware = rpc.HandleCallMsgMiddleware
+type Ow3ResourceIdMapper func(msg *rpc.JsonRpcMessage) string
+
+type Ow3BillingMiddlewareOption struct {
+	BillingMiddlewareOption
+	// gets resource ID from json rpc message
+	ResourceIdMapper Ow3ResourceIdMapper
+}
+
+func DefaultOw3BillingMiddlewareOption(client *Client) *Ow3BillingMiddlewareOption {
+	return &Ow3BillingMiddlewareOption{
+		BillingMiddlewareOption: BillingMiddlewareOption{
+			Client: client,
+		},
+	}
+}
+
+// Openweb3BillingMiddleware provides billing RPC middleware for openweb3.
+func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware {
+	initDefault(&option.BillingMiddlewareOption)
 
 	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, bs *BillingStatus) *rpc.JsonRpcMessage {
+			// inject billing status to context
 			ctx = context.WithValue(ctx, CtxKeyBillingStatus, bs)
 
 			if bs.Error == nil { // billing successfully?
@@ -109,7 +142,7 @@ func BillingMiddleware(
 			if err, ok := bs.InternalServerError(); ok {
 				logrus.WithField("msg", msg).WithError(err).Error("Billing middleware internal server error")
 
-				if ignoreInternalServerError {
+				if !option.PropagateInternalServerError {
 					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
 				}
 			}
@@ -118,13 +151,19 @@ func BillingMiddleware(
 		}
 
 		return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
-			customerKey, ok := customerKeyProvider(ctx)
+			customerKey, ok := option.CustomerKeyProvider(ctx)
 			if !ok { // customer key provided?
 				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
 				return wrapup(ctx, msg, bs)
 			}
 
-			receipt, err := client.Bill(ctx, msg.Method, false, customerKey)
+			// mapping resource ID
+			resourceId := msg.Method
+			if option.ResourceIdMapper != nil {
+				resourceId = option.ResourceIdMapper(msg)
+			}
+
+			receipt, err := option.Client.Bill(ctx, resourceId, false, customerKey)
 			if err != nil { // billing failed?
 				err = errors.WithMessage(err, "web3pay billing failed")
 				return wrapup(ctx, msg, NewBillingStatusWithError(customerKey, err))
@@ -133,4 +172,112 @@ func BillingMiddleware(
 			return wrapup(ctx, msg, NewBillingStatusWithReceipt(customerKey, receipt))
 		}
 	}
+}
+
+// providing net/http middleware
+
+type HttpMiddleware = func(next http.Handler) http.Handler
+type HttpResourceIdMapper func(req *http.Request) string
+
+type HttpBillingMiddlewareOption struct {
+	BillingMiddlewareOption
+	// gets resource ID from http request
+	ResourceIdMapper HttpResourceIdMapper
+}
+
+func DefaultHttpBillingMiddlewareOption(client *Client) *HttpBillingMiddlewareOption {
+	return &HttpBillingMiddlewareOption{
+		BillingMiddlewareOption: BillingMiddlewareOption{
+			Client: client,
+		},
+	}
+}
+
+// HttpBillingMiddleware provides billing RPC middleware for net/http.
+func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
+	initDefault(&option.BillingMiddlewareOption)
+
+	return func(next http.Handler) http.Handler {
+		wrapup := func(w http.ResponseWriter, r *http.Request, bs *BillingStatus) {
+			// inject billing status to context
+			ctx := context.WithValue(r.Context(), CtxKeyBillingStatus, bs)
+			r = r.WithContext(ctx)
+
+			if bs.Error == nil { // billing successfully?
+				vipCustomerKeyCache.Add(bs.customerKey, struct{}{})
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// handle gateway internal server error
+			if err, ok := bs.InternalServerError(); ok {
+				logrus.WithField("request", r).WithError(err).Error("Billing middleware internal server error")
+
+				if !option.PropagateInternalServerError {
+					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		}
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			customerKey, ok := option.CustomerKeyProvider(ctx)
+			if !ok { // customer key provided?
+				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
+				wrapup(w, r, bs)
+				return
+			}
+
+			// mapping resource ID
+			resourceId := r.Method
+			if option.ResourceIdMapper != nil {
+				resourceId = option.ResourceIdMapper(r)
+			}
+
+			receipt, err := option.Client.Bill(ctx, resourceId, false, customerKey)
+			if err != nil { // billing failed?
+				err = errors.WithMessage(err, "web3pay billing failed")
+				wrapup(w, r, NewBillingStatusWithError(customerKey, err))
+				return
+			}
+
+			wrapup(w, r, NewBillingStatusWithReceipt(customerKey, receipt))
+		})
+	}
+}
+
+// httpContextInjector injects data into context to return new context
+type httpContextInjector = func(ctx context.Context, r *http.Request) context.Context
+
+// HttpInjectContextMiddleware injects contextual data
+func HttpInjectContextMiddleware(injectors ...httpContextInjector) HttpMiddleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+
+			for i := range injectors {
+				ctx = injectors[i](ctx, r)
+			}
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// handy utility functions
+
+// CustomerKeyContextInjector returns context injector by extracting customer key from request
+func CustomerKeyContextInjector(ckExtractor func(r *http.Request) string) httpContextInjector {
+	return func(ctx context.Context, r *http.Request) context.Context {
+		return context.WithValue(ctx, CtxCustomerKey, ckExtractor(r))
+	}
+}
+
+// GetCustomerKeyFromContext gets customer key from context
+func GetCustomerKeyFromContext(ctx context.Context) (string, bool) {
+	val, ok := ctx.Value(CtxCustomerKey).(string)
+	return val, ok
 }
