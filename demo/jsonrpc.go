@@ -40,7 +40,8 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 	}
 
 	// hook web3pay billing middleware for go-rpc-provider
-	rpc.HookHandleCallMsg(web3pay.BillingMiddleware(client, GetCustomerKeyFromContext))
+	mwoption := web3pay.DefaultOw3BillingMiddlewareOption(client)
+	rpc.HookHandleCallMsg(web3pay.Openweb3BillingMiddleware(mwoption))
 
 	// create JSON-RPC server
 	handler := rpc.NewServer()
@@ -48,8 +49,10 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 		return errors.WithMessage(err, "failed to register demo API service")
 	}
 
+	ckContextInjector := web3pay.CustomerKeyContextInjector(GetCustomerKey)
+	ctxInjectMw := web3pay.HttpInjectContextMiddleware(ckContextInjector)
 	server := http.Server{
-		Handler: httpMiddleware(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"})),
+		Handler: ctxInjectMw(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"})),
 	}
 
 	// listen endpoint

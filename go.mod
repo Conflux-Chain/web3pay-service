@@ -7,6 +7,7 @@ require (
 	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.10.15
 	github.com/gammazero/workerpool v1.1.2
+	github.com/go-resty/resty/v2 v2.7.0
 	github.com/gorilla/handlers v1.5.1
 	github.com/gorilla/mux v1.8.0
 	github.com/gorilla/rpc v1.2.0

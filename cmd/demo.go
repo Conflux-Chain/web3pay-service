@@ -98,15 +98,32 @@ func startProvider(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if strings.EqualFold(demoConf.RpcStyle, "jsonrpc") {
-		logrus.WithField("listenPort", demoConf.ServerPort).
-			Info("Starting demo JSON-RPC billed service provider...")
+	if strings.EqualFold(demoConf.RpcStyle, "restful") {
+		startRestfulProvider()
+	} else {
+		startJsonRpcProvider()
+	}
+}
 
-		err := demo.RunJsonRpcServiceProvider(demoConf.ClientConfig, demoConf.ServerPort)
-		if err != nil {
-			logrus.WithField("demoConfig", demoConf).
-				Info("Failed to serve JSON-RPC billed service provider")
-		}
+func startRestfulProvider() {
+	logrus.WithField("listenPort", demoConf.ServerPort).
+		Info("Starting demo RESTful billed service provider...")
+
+	err := demo.RunRestfulServiceProvider(demoConf.ClientConfig, demoConf.ServerPort)
+	if err != nil {
+		logrus.WithField("demoConfig", demoConf).
+			Info("Failed to serve RESTful billed service provider")
+	}
+}
+
+func startJsonRpcProvider() {
+	logrus.WithField("listenPort", demoConf.ServerPort).
+		Info("Starting demo JSON-RPC billed service provider...")
+
+	err := demo.RunJsonRpcServiceProvider(demoConf.ClientConfig, demoConf.ServerPort)
+	if err != nil {
+		logrus.WithField("demoConfig", demoConf).
+			Info("Failed to serve JSON-RPC billed service provider")
 	}
 }
 
@@ -119,15 +136,33 @@ func startConsumer(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	if strings.EqualFold(demoConf.RpcStyle, "jsonrpc") {
-		resp, err := demo.RunJsonRpcServiceConsumer(demoConf.CustomerKey, demoConf.ServerPort)
-		if err != nil {
-			logrus.WithField("demoConfig", demoConf).
-				WithError(err).
-				Info("Failed to run demo billed JSON-RPC service consumer")
-			return
-		}
-
-		logrus.WithField("response", resp).Info("Run demo billed JSON-RPC service consumer")
+	if strings.EqualFold(demoConf.RpcStyle, "restful") {
+		startRestfulConsumer()
+	} else {
+		startJsonRpcConsuemr()
 	}
+}
+
+func startRestfulConsumer() {
+	resp, err := demo.RunRestfulServiceConsumer(demoConf.CustomerKey, demoConf.ServerPort)
+	if err != nil {
+		logrus.WithField("demoConfig", demoConf).
+			WithError(err).
+			Info("Failed to run demo billed RESTful service consumer")
+		return
+	}
+
+	logrus.WithField("response", resp).Info("Run demo billed RESTful service consumer")
+}
+
+func startJsonRpcConsuemr() {
+	resp, err := demo.RunJsonRpcServiceConsumer(demoConf.CustomerKey, demoConf.ServerPort)
+	if err != nil {
+		logrus.WithField("demoConfig", demoConf).
+			WithError(err).
+			Info("Failed to run demo billed JSON-RPC service consumer")
+		return
+	}
+
+	logrus.WithField("response", resp).Info("Run demo billed JSON-RPC service consumer")
 }
