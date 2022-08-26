@@ -368,14 +368,24 @@ func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status u
 	}
 }
 
+var pollSignal = make(chan time.Time, 1)
+
+func TriggerPoll() {
+	pollSignal <- time.Now()
+}
 func (worker *BlockchainWorker) poll() {
 	ticker := time.NewTicker(worker.PollingInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if err := worker.pollOnce(); err != nil {
-			logrus.WithError(err).
-				Error("Blockchain worker failed to poll bill tasks for settlement")
+	for {
+		select {
+		case <-ticker.C:
+		case <-pollSignal:
+			fmt.Printf("hit ------ \n")
+			if err := worker.pollOnce(); err != nil {
+				logrus.WithError(err).
+					Error("Blockchain worker failed to poll bill tasks for settlement")
+			}
 		}
 	}
 }

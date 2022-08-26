@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/worker"
 	"github.com/gorilla/mux"
 )
 
@@ -47,7 +48,10 @@ func newRestfulRouter(svcFactory *service.Factory) *mux.Router {
 	r.HandleFunc("/billing", Wrap(billingCtr.Bill, "web3pay/api/billing")).
 		Methods("POST").
 		Headers("Content-Type", "application/json")
-
+	r.HandleFunc("/poll-bill", func(w http.ResponseWriter, r *http.Request) {
+		worker.TriggerPoll()
+		w.Write([]byte("OK"))
+	})
 	return r
 }
 

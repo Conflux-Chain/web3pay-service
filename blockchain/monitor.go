@@ -94,6 +94,7 @@ func (m *Monitor) Sync() {
 					Error("Monitor failed to sync blockchain data")
 			}
 		case task := <-confirmQueue:
+			logrus.Infof("push task \n")
 			confirmTasks.PushBack(task)
 		}
 	}
@@ -115,7 +116,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	})
 
 	if m.SyncFromBlockNumber > goAfterBlockNumber { // already catched up to ceil
-		logger.Debug("Monitor skipped sync due to already catched up")
+		//logger.Debug("Monitor skipped sync due to already catched up")
 		return true, nil
 	}
 
@@ -159,7 +160,7 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 		return false, errors.WithMessage(err, "failed to get event logs")
 	}
 
-	logger.WithField("numLogs", len(logs)).Debug("Monitor fetched block event logs")
+	//logger.WithField("numLogs", len(logs)).Debug("Monitor fetched block event logs")
 
 	for i := range logs {
 		if logs[i].BlockHash != block.Hash || logs[i].BlockNumber != block.Number.Uint64() {

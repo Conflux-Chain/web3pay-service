@@ -106,6 +106,10 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
+			if r.Method == "GET" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			billingKey, err := parseAuthKey(r, model.AuthHeaderBillingKey)
 			if err != nil {
 				err = errors.WithMessage(err, "billing key parsed error")
