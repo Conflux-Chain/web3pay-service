@@ -23,7 +23,7 @@ const (
 
 	// skip blocks ahead of latest block number to reduce chain reorg
 	// while sync or state call.
-	skipBlocksAheadOfLeatestBlock = 35
+	skipBlocksAheadOfLeatestBlock = 40
 )
 
 type contractBindCallContext struct {
@@ -164,6 +164,54 @@ func (p *Provider) BatchChargeAppCoinBills(
 	return appCoinContract.ChargeBatch(opts, requests)
 }
 
+// FlushPendingResourceConfig flushes APP coin pending resource configurations.
+func (p *Provider) FlushPendingResourceConfig(opts *bind.TransactOpts, coin common.Address) (*types.Transaction, error) {
+	appCoinContract, err := p.GetAppCoinContract(coin)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+	}
+
+	// bind call context
+	if opts == nil {
+		opts = &bind.TransactOpts{}
+	}
+
+	opts.From = p.bindCallContext.signerAddress
+	opts.Signer = p.bindCallContext.signer
+
+	// estimate gas && gas price
+	gasPrice, err := p.GasPrice()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get gas price")
+	}
+
+	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP coin ABI")
+	}
+
+	data, err := appCoinAbi.Pack(contract.MethodFlushPendingConfig)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to pack ABI data")
+	}
+
+	latestBlockNumberOrHash := types.BlockNumberOrHashWithNumber(types.LatestBlockNumber)
+	gas, err := p.EstimateGas(types.CallRequest{
+		From:     &opts.From,
+		To:       &coin,
+		GasPrice: gasPrice,
+		Data:     data,
+	}, &latestBlockNumberOrHash)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to estimate gas")
+	}
+
+	opts.GasPrice = gasPrice
+	opts.GasLimit = gas.Uint64()
+
+	return appCoinContract.FlushPendingConfig(opts)
+}
+
 // GetAppCoinFrozenStatus gets APP coin frozen status for specific address.
 func (p *Provider) GetAppCoinFrozenStatus(
 	callOpts *bind.CallOpts, coin, address common.Address) (int64, error) {
@@ -238,6 +286,16 @@ func (p *Provider) GetAppCoinContractOwner(
 	}
 
 	return &appCoinOwner, nil
+}
+
+// GetAppCoinConfigPendingSeconds gets APP coin config for pending seconds
+func (p *Provider) GetAppConfigPendingSeconds(callOpts *bind.CallOpts, coin common.Address) (*big.Int, error) {
+	appCoinContract, err := p.GetAppCoinContract(coin)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+	}
+
+	return appCoinContract.PendingSeconds(callOpts)
 }
 
 // ListTrackedAppCoins lists all tracked APP coin contracts.

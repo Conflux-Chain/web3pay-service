@@ -6,6 +6,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	// operation codes for resource pending configurations
+	OpCodeResourceConfigAdd = iota
+	OpCodeResourceConfigUpdate
+	OpCodeResourceConfigDelete
+	OpCodeResourceConfigNoPending
+)
+
 var (
 	errEventSigMismatch = errors.New("event signature mismatch")
 
@@ -19,6 +27,7 @@ var (
 
 	// method names
 	MethodAppCoinChargeBatch = "chargeBatch"
+	MethodFlushPendingConfig = "flushPendingConfig"
 )
 
 func UnpackControllerAPPCREATED(ctrlAbi *abi.ABI, log *types.Log) (*ControllerAPPCREATED, error) {
