@@ -44,8 +44,9 @@ func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED, 
 	bs.workerPool.Submit(func() {
 		for {
 			coin := event.Addr
+			blockNum := int64(rawlog.BlockNumber)
 			baseCallOpt := &bind.CallOpts{
-				BlockNumber: big.NewInt(int64(rawlog.BlockNumber)),
+				BlockNumber: big.NewInt(blockNum),
 			}
 
 			resources, err := bs.provider.GetAppCoinResources(baseCallOpt, coin)
@@ -61,7 +62,8 @@ func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED, 
 			defer bs.appCoinMutex.Unlock()
 
 			bs.appCoinBaseMap[coin] = AppCoinBase{
-				Addr: coin, Owner: event.AppOwner, Resources: resources,
+				UpdateBlock: blockNum, Addr: coin,
+				Owner: event.AppOwner, Resources: resources,
 			}
 
 			logrus.WithField("appCoinBase", bs.appCoinBaseMap[coin]).
@@ -156,9 +158,8 @@ func (bs *BlockchainService) OnResourceChanged(event *contract.APPCoinResourceCh
 	bs.workerPool.Submit(func() {
 		for {
 			coin := rawlog.Address
-			baseCallOpt := &bind.CallOpts{
-				BlockNumber: big.NewInt(int64(rawlog.BlockNumber)),
-			}
+			blockNum := int64(rawlog.BlockNumber)
+			baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(blockNum)}
 
 			resources, err := bs.provider.GetAppCoinResources(baseCallOpt, coin)
 			if err != nil {
@@ -174,11 +175,22 @@ func (bs *BlockchainService) OnResourceChanged(event *contract.APPCoinResourceCh
 			bs.appCoinMutex.Lock()
 			defer bs.appCoinMutex.Unlock()
 
-			if apiCoinBase, ok := bs.appCoinBaseMap[coin]; ok {
-				apiCoinBase.Resources = resources
+			// not our concerned APP coin
+			appCoinBase, ok := bs.appCoinBaseMap[coin]
+			if !ok {
+				return
 			}
 
-			logrus.WithField("appCoinBase", bs.appCoinBaseMap[coin]).
+			// in case of stale block update
+			if appCoinBase.UpdateBlock >= blockNum {
+				return
+			}
+
+			appCoinBase.Resources = resources
+			appCoinBase.UpdateBlock = blockNum
+			bs.appCoinBaseMap[coin] = appCoinBase
+
+			logrus.WithField("appCoinBase", appCoinBase).
 				Debug("Blockchain service `OnResourceChanged` event handled")
 			return
 		}
