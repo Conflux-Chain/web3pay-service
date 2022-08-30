@@ -23,8 +23,10 @@ type BillingRequest struct {
 }
 
 type BillingReceipt struct {
-	ResourceId string `json:"resourceId"`
-	Fee        string `json:"fee"`
+	AppCoin      common.Address             `json:"appCoin,omitempty"`
+	Customer     common.Address             `json:"customer,omitempty"`
+	Balance      string                     `json:"balance,omitempty"`
+	ResourceFees map[string]decimal.Decimal `json:"resourceFees,omitempty"` // resource ID => fee
 }
 
 type BillingBatchRequest struct {
@@ -34,9 +36,7 @@ type BillingBatchRequest struct {
 	Customer     common.Address   `json:"-"`
 }
 
-type BillingBatchReceipt struct {
-	ResourceFees map[string]decimal.Decimal `json:"resourceFees"`
-}
+type BillingBatchReceipt = BillingReceipt
 
 type BillingService struct {
 	chainSvc    *BlockchainService
@@ -53,7 +53,7 @@ func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainServ
 	}
 }
 
-func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchRequest) (*BillingBatchReceipt, error) {
+func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchRequest) (*BillingReceipt, error) {
 	var totalCost decimal.Decimal
 	resourceCosts := make(map[string]decimal.Decimal)
 	statements := make(map[uint32]int64)
@@ -82,11 +82,6 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 		"resourceCosts": resourceCosts,
 	})
 
-	if totalCost.IsZero() { // no fee to be billed?
-		logger.Debug("Billing skipped with no fee")
-		return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
-	}
-
 	// get account status
 	appCoinAccount, err := bs.chainSvc.GetOrFetchAccountStatus(req.AppCoin, req.Customer)
 	if err != nil {
@@ -95,22 +90,27 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 	}
 
 	logger = logger.WithField("account", appCoinAccount)
+	receipt := &BillingReceipt{
+		AppCoin: req.AppCoin, Customer: req.Customer, ResourceFees: resourceCosts,
+	}
 
 	// account frozen?
 	if appCoinAccount.IsFrozen() {
 		logger.Debug("Billing skipped due to customer account frozen")
-		return nil, model.ErrAccountAddrFrozen
+		return nil, model.ErrAccountAddrFrozen.WithData(receipt)
 	}
+
+	receipt.Balance = appCoinAccount.TotalBalance().String()
 
 	// insufficient balance?
 	if appCoinAccount.TotalBalance().Cmp(totalCost.BigInt()) < 0 {
 		logger.Debug("Billing skipped due to insufficient balance")
-		return nil, model.ErrInsufficentBalance
+		return nil, model.ErrInsufficentBalance.WithData(receipt)
 	}
 
 	if req.DryRun { // for simulation only?
 		logger.Debug("Billing skipped for dry run")
-		return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
+		return receipt, nil
 	}
 
 	util.KLock(KeyBillingLocker)
@@ -141,28 +141,17 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 		return nil, err
 	}
 
-	return &BillingBatchReceipt{ResourceFees: resourceCosts}, nil
+	receipt.Balance = appCoinAccount.TotalBalance().String()
+	return receipt, nil
 }
 
 func (bs *BillingService) Bill(ctx context.Context, req *BillingRequest) (*BillingReceipt, error) {
-	batchReceipt, err := bs.BillBatch(ctx, &BillingBatchRequest{
+	return bs.BillBatch(ctx, &BillingBatchRequest{
 		ResourceUses: map[string]int64{req.ResourceId: 1},
 		DryRun:       req.DryRun,
 		AppCoin:      req.AppCoin,
 		Customer:     req.Customer,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	for resourceId, fee := range batchReceipt.ResourceFees {
-		return &BillingReceipt{
-			ResourceId: resourceId,
-			Fee:        fee.String(),
-		}, nil
-	}
-
-	return nil, nil
 }
 
 func (bs *BillingService) GetAndDelStatements(billID uint64) map[uint32]int64 {
