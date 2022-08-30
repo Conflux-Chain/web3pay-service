@@ -44,7 +44,7 @@ func start(cmd *cobra.Command, args []string) {
 	chainMonitor := blockchain.MustNewMonitor(chainConfig, chainOpsProvider, serviceFactory.Blockchain)
 
 	// worker
-	chainWorker := worker.NewBlockchainWorker(
+	chainWorker := worker.MustNewBlockchainWorkerFromViper(
 		chainOpsProvider, sqliteStore, serviceFactory.Billing, serviceFactory.Blockchain,
 	)
 
