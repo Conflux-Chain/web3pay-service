@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/Conflux-Chain/web3pay-service/model"
@@ -19,15 +20,17 @@ import (
 )
 
 const (
-	// bill polling for blockchain txn submission
-	pollingInterval  = time.Second * 90
-	pollingBatchSize = 20
-
-	billQueueSize           = 5000
-	maxSettlementRetries    = 5
-	minConfirmBlocks        = 30
-	maxPendingAwaitDuration = time.Second * 30
+	// channel size for billing settlement
+	billingQueueSize = 5000
 )
+
+type settlementConfig struct {
+	PollingInterval         time.Duration `default:"1m"`
+	PollingBatchSize        int           `default:"20"`
+	MaxSettlementRetries    uint          `default:"5"`
+	MinConfirmedBlocks      uint64        `default:"30"`
+	MaxPendingAwaitDuration time.Duration `default:"30s"`
+}
 
 type BillTask struct {
 	*model.Bill
@@ -50,6 +53,7 @@ func (t *BillTask) isExpired(lifetime time.Duration) bool {
 }
 
 type BlockchainWorker struct {
+	settlementConfig
 	provider            *blockchain.Provider
 	sqliteStore         *sqlite.SqliteStore
 	billSvc             *service.BillingService
@@ -58,16 +62,20 @@ type BlockchainWorker struct {
 	billConfirmQueue    chan []*BillTask
 }
 
-func NewBlockchainWorker(
+func MustNewBlockchainWorkerFromViper(
 	provider *blockchain.Provider, sqliteStore *sqlite.SqliteStore,
 	billSvc *service.BillingService, chainSvc *service.BlockchainService,
 ) *BlockchainWorker {
+	var conf settlementConfig
+	viper.MustUnmarshalKey("worker", &conf)
+
 	// TODO: check bill submitting/submitted tasks status for action before run?
 	return &BlockchainWorker{
-		sqliteStore: sqliteStore, provider: provider,
+		settlementConfig: conf,
+		sqliteStore:      sqliteStore, provider: provider,
 		billSvc: billSvc, chainSvc: chainSvc,
-		billSettlementQueue: make(chan []*BillTask, billQueueSize),
-		billConfirmQueue:    make(chan []*BillTask, billQueueSize),
+		billSettlementQueue: make(chan []*BillTask, billingQueueSize),
+		billConfirmQueue:    make(chan []*BillTask, billingQueueSize),
 	}
 }
 
@@ -115,7 +123,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 
 		// transaction pending (not mined or executed)?
 		if txn.BlockHash == nil {
-			if billTasks[i].isExpired(maxPendingAwaitDuration) { // pending too long?
+			if billTasks[i].isExpired(worker.MaxPendingAwaitDuration) { // pending too long?
 				logger.WithField("submittedAt", billTasks[i].SubmittedAt).
 					Info("Blockchain worker got txn pending too long for task confirmation")
 				billTasks[i].Memo = "transaction pending too long"
@@ -148,7 +156,7 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 		}
 
 		// enough blocks confirmed?
-		targetBlockNumber := (txn.BlockNumber.Uint64() + minConfirmBlocks)
+		targetBlockNumber := (txn.BlockNumber.Uint64() + worker.MinConfirmedBlocks)
 		if targetBlockNumber > latestBlock.Uint64() {
 			leftConfirmBlocks := targetBlockNumber - latestBlock.Uint64()
 
@@ -223,7 +231,7 @@ func (worker *BlockchainWorker) settle() {
 
 		// filter dead tasks and todo tasks
 		for i := range billTasks {
-			if billTasks[i].TryTimes > maxSettlementRetries {
+			if billTasks[i].TryTimes > worker.MaxSettlementRetries {
 				logrus.WithFields(logrus.Fields{
 					"bill":       *billTasks[i].Bill,
 					"statements": billTasks[i].Statements,
@@ -361,7 +369,7 @@ func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status u
 }
 
 func (worker *BlockchainWorker) poll() {
-	ticker := time.NewTicker(pollingInterval)
+	ticker := time.NewTicker(worker.PollingInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -383,7 +391,7 @@ func (w *BlockchainWorker) pollOnce() error {
 	defer util.KUnlock(service.KeyBillingLocker)
 
 	var bills []*model.Bill
-	db := w.sqliteStore.Order("id ASC").Limit(pollingBatchSize)
+	db := w.sqliteStore.Order("id ASC").Limit(w.PollingBatchSize)
 
 	res := db.Find(&bills, "status = ?", model.BillStatusCreated)
 	if err := res.Error; err != nil {
@@ -422,7 +430,7 @@ func (w *BlockchainWorker) pollOnce() error {
 // isOverloaded check if the worker is overloaded
 func (w *BlockchainWorker) isOverloaded() (bool, string) {
 	// cumulative ratio should not be more than 75%, otherwise regarded as overloaded
-	maxCumulativeSize := billQueueSize * 3 / 4
+	maxCumulativeSize := billingQueueSize * 3 / 4
 
 	if len(w.billSettlementQueue) > maxCumulativeSize {
 		return true, "cumulative ratio for settlement queue too high"

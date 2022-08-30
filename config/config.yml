@@ -52,3 +52,16 @@ blockchain:
   creatorAddr:
   # Operator private key used to sign transaction for billing charge (mandatory).
   operatorPrivateKey:
+
+# # Worker configurations
+# worker:
+#   # Bill polling interval for blockchain settlement.
+#   pollingInterval: 1m
+#   # Number of bills polled per time.
+#   pollingBatchSize: 20
+#   # Maximum num of retries for blockchain settlement if failed.
+#   maxSettlementRetries: 5
+#   # Minimum confirmed blocks for settlement.
+#   minConfirmedBlocks: 30
+#   # Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
+#   maxPendingAwaitDuration: 30s
