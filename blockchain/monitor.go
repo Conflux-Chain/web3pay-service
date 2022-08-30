@@ -273,6 +273,9 @@ func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID:
 		// resource changed
 		err = m.handleAppCoinResourceChanged(appCoinAbi, log)
+	case appCoinAbi.Events[contract.EventAppOwnerChanged].ID:
+		// owner changed
+		err = m.handleAppOwnerChanged(appCoinAbi, log)
 	default: // maybe airdrop event?
 		return m.handleAirdropEvent(log)
 	}
@@ -302,6 +305,26 @@ func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.L
 	}
 
 	logger.Debug("Monitor handled APP coin resource changed event")
+	return nil
+}
+
+func (m *Monitor) handleAppOwnerChanged(appCoinAbi *abi.ABI, log *types.Log) error {
+	eventAppOwnerChanged, err := contract.UnpackAPPCoinAppOwnerChanged(appCoinAbi, log)
+	if err != nil {
+		return err
+	}
+
+	logger := logrus.WithFields(logrus.Fields{
+		"appCoinContract": log.Address,
+		"newOwner":        eventAppOwnerChanged.To,
+	})
+
+	if err := m.contractEventObserver.OnAppOwnerChanged(eventAppOwnerChanged, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP coin owner changed event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP coin owner changed event")
 	return nil
 }
 

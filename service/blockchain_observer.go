@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go/types"
@@ -154,6 +155,19 @@ func (bs *BlockchainService) OnWithdraw(event *contract.APPCoinWithdraw, rawlog 
 	return err
 }
 
+func (bs *BlockchainService) OnAppOwnerChanged(event *contract.APPCoinAppOwnerChanged, rawlog *types.Log) error {
+	bs.appCoinMutex.Lock()
+	defer bs.appCoinMutex.Unlock()
+
+	appCoin, ok := bs.appCoinBaseMap[rawlog.Address]
+	if !ok {
+		return model.ErrAppCoinNotFound
+	}
+
+	appCoin.Owner = event.To
+	return nil
+}
+
 func (bs *BlockchainService) OnResourceChanged(event *contract.APPCoinResourceChanged, rawlog *types.Log) error {
 	bs.workerPool.Submit(func() {
 		for {
@@ -212,7 +226,7 @@ func (bs *BlockchainService) OnReorgRevert(revertToBlock int64) error {
 	}
 
 	logrus.WithField("revertToBlock", revertToBlock).
-		Debug("Blockchain service `OnReorgRevert` event handled")
+		Info("Blockchain service `OnReorgRevert` event handled")
 
 	return nil
 }

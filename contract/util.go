@@ -24,6 +24,7 @@ var (
 	EventAppCoinFrozen          = "Frozen"
 	EventAppCointWithdraw       = "Withdraw"
 	EventAppCoinResourceChanged = "ResourceChanged"
+	EventAppOwnerChanged        = "AppOwnerChanged"
 
 	// method names
 	MethodAppCoinChargeBatch = "chargeBatch"
@@ -61,6 +62,13 @@ func UnpackAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinFrozen, e
 func UnpackAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinWithdraw, error) {
 	eventObj := new(APPCoinWithdraw)
 	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCointWithdraw, log)
+
+	return eventObj, err
+}
+
+func UnpackAPPCoinAppOwnerChanged(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinAppOwnerChanged, error) {
+	eventObj := new(APPCoinAppOwnerChanged)
+	err := unpackLogEventData(eventObj, appCoinAbi, EventAppOwnerChanged, log)
 
 	return eventObj, err
 }
