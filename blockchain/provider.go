@@ -23,7 +23,7 @@ const (
 
 	// skip blocks ahead of latest block number to reduce chain reorg
 	// while sync or state call.
-	skipBlocksAheadOfLeatestBlock = 40
+	skipBlocksAheadOfLeatestBlock = 45
 )
 
 type contractBindCallContext struct {

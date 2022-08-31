@@ -104,12 +104,18 @@ func (svc *BlockchainService) GetOrFetchAccountStatus(appCoin, address common.Ad
 	account = model.NewAppCoinAccount(coin, addr, frozen, balance)
 	account.IncreaseFee(fee)
 
-	if err := svc.memStore.SaveAccount(account); err != nil {
+	txn := svc.memStore.Txn(true)
+	if err := svc.memStore.SaveAccountWithTxn(txn, account); err != nil {
+		txn.Abort()
 		return nil, errors.WithMessage(err, "failed to save APP coin account")
 	}
 
 	// send to status confirmation queue
-	svc.addStatusConfirmTask(appCoin, address)
+	if svc.addStatusConfirmTask(appCoin, address) {
+		txn.Commit()
+	} else {
+		txn.Abort()
+	}
 
 	logrus.WithField("appCoinAccount", account).Debug("APP coin account fetched and created")
 	return account, nil
