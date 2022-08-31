@@ -15,7 +15,7 @@ store:
 # Metrics Configurations
 metrics:
   enabled: false
-  namespace: f2n
+  namespace: web3pay
   influxdb:
     host: http://127.0.0.1:8086
     db:   web3pay
@@ -53,15 +53,15 @@ blockchain:
   # Operator private key used to sign transaction for billing charge (mandatory).
   operatorPrivateKey:
 
-# # Worker configurations
-# worker:
-#   # Bill polling interval for blockchain settlement.
-#   pollingInterval: 1m
-#   # Number of bills polled per time.
-#   pollingBatchSize: 20
-#   # Maximum num of retries for blockchain settlement if failed.
-#   maxSettlementRetries: 5
-#   # Minimum confirmed blocks for settlement.
-#   minConfirmedBlocks: 30
-#   # Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
-#   maxPendingAwaitDuration: 30s
+# Worker configurations
+worker:
+  # Bill polling interval for blockchain settlement.
+  # pollingInterval: 1m
+  # Number of bills polled per time.
+  # pollingBatchSize: 20
+  # Maximum num of retries for blockchain settlement if failed.
+  # maxSettlementRetries: 5
+  # Minimum confirmed blocks for settlement.
+  # minConfirmedBlocks: 30
+  # Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
+  # maxPendingAwaitDuration: 30s
