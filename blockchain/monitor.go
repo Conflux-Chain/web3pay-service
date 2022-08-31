@@ -5,9 +5,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/Conflux-Chain/web3pay-service/contract"
-	"github.com/Conflux-Chain/web3pay-service/util"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go/types"
@@ -16,10 +13,15 @@ import (
 )
 
 const (
-	blockWinCapacity = 100
+	blockWinCapacity = 200
 
 	syncIntervalNormal  = time.Second * 1
-	syncIntervalCatchUp = time.Millisecond * 100
+	syncIntervalCatchUp = time.Millisecond * 300
+)
+
+var (
+	errChainReorged = errors.New("chain re-orged")
+	errGetLogs      = errors.New("getLogs error")
 )
 
 type monitorConfig struct {
@@ -29,6 +31,7 @@ type monitorConfig struct {
 	SyncFromBlockNumber  int64            // the block number to start sync from
 	SyncIntervalNormal   time.Duration    // interval to sync data in normal status
 	SyncIntervalCatchUp  time.Duration    // interval to sync data in catching up mode
+	UseFastCatchUp       bool             // whether to use fast catchup
 }
 
 // Monitor sync blockchain event logs to monitor contract events.
@@ -72,7 +75,11 @@ func (m *Monitor) Sync() {
 	logrus.WithField("syncFromBlock", m.SyncFromBlockNumber).
 		Debug("Monitor starting to sync blockchain data")
 
-	ticker := time.NewTicker(m.SyncIntervalCatchUp)
+	if m.UseFastCatchUp {
+		m.fastCatchup()
+	}
+
+	ticker := time.NewTicker(m.SyncIntervalNormal)
 	defer ticker.Stop()
 
 	confirmQueue := m.contractEventObserver.StatusConfirmQueue()
@@ -97,6 +104,158 @@ func (m *Monitor) Sync() {
 			confirmTasks.PushBack(task)
 		}
 	}
+}
+
+// fastCatchup fast catches up to the latest block number.
+func (m *Monitor) fastCatchup() {
+	for {
+		latestBlockBigInt, err := m.provider.BlockNumber()
+		if err != nil {
+			logrus.WithError(err).Error("Monitor failed to query latest block during fast catchup")
+			continue
+		}
+
+		goAfterBlockNumber := latestBlockBigInt.Int64() - skipBlocksAheadOfLeatestBlock
+		if m.SyncFromBlockNumber > goAfterBlockNumber { // already catched up?
+			logrus.WithField("latestBlockNumber", goAfterBlockNumber).Debug("Monitor fast catched up latest block")
+			return
+		}
+
+		// sync to the target block number with binary probing in case of error resulted in by
+		// loose `getLogs` search filter.
+		for {
+			err := m.catchupOnce(goAfterBlockNumber)
+			if err == nil || errors.Is(err, errChainReorged) { // success or reorg?
+				break
+			}
+
+			if errors.Is(err, errGetLogs) { // getLogs query error
+				// narrow down `getLogs` search filter in case of error caused by huge query/result set
+				goAfterBlockNumber = (m.SyncFromBlockNumber + goAfterBlockNumber) / 2
+
+				logrus.WithField("newTarget", goAfterBlockNumber).
+					Info("Monitor adjusted target block number due to getLogs error during fast catchup")
+				continue
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"start": m.SyncFromBlockNumber,
+				"end":   goAfterBlockNumber,
+			}).WithError(err).Error("Monitor failed to sync once during fast catchup")
+
+			time.Sleep(time.Second)
+		}
+	}
+}
+
+func (m *Monitor) catchupOnce(target int64) error {
+	start := (types.BlockNumber)(m.SyncFromBlockNumber)
+	end := (types.BlockNumber)(target)
+
+	startBlock, err := m.provider.BlockByNumber(start, false)
+	if err != nil {
+		return errors.WithMessage(err, "failed to get block by number")
+	}
+
+	endBlock := startBlock
+	if start != end {
+		endBlock, err = m.provider.BlockByNumber(end, false)
+		if err != nil {
+			return errors.WithMessage(err, "failed to get block by number")
+		}
+	}
+
+	logger := logrus.WithFields(logrus.Fields{
+		"start": start, "end": end,
+	})
+
+	// parent hash checking
+	prevBlockNum := int64(start) - 1
+	prevBlockHash, exist := m.blockWindow.getBlockHash(prevBlockNum)
+
+	if exist && startBlock.ParentHash != prevBlockHash { // parent hash not matched
+		logger.WithFields(logrus.Fields{
+			"prevBlockHash":   prevBlockHash,
+			"parentBlockHash": startBlock.ParentHash,
+		}).Info("Monitor parent hash mismatch detected")
+
+		if err := m.reorgRevert(prevBlockNum); err != nil {
+			logger.WithError(err).
+				Error("Monitor failed to reorg revert due to parent hash mismatch")
+		}
+
+		return errChainReorged
+	}
+
+	// get event logs
+
+	// build log filters
+	filterAddrs := []common.Address{m.ControllerAddress}
+	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
+	logFilter := types.FilterQuery{
+		FromBlock: &start, ToBlock: &end, Addresses: filterAddrs,
+	}
+
+	logs, err := m.provider.Logs(logFilter)
+	if err != nil {
+		logrus.WithField("logFilter", logFilter).WithError(err).Info("Monitor failed to get event logs")
+		return errGetLogs
+	}
+
+	logger.WithField("numLogs", len(logs)).Debug("Monitor fetched block event logs during catchup")
+
+	validate := func(log *types.Log, block *types.Block) bool {
+		return log.BlockNumber != block.Number.Uint64() || log.BlockHash == block.Hash
+	}
+
+	for i := range logs {
+		if !validate(&logs[i], startBlock) ||
+			(startBlock != endBlock && !validate(&logs[i], endBlock)) {
+			logger.WithFields(logrus.Fields{
+				"log":        logs[i],
+				"startBlock": startBlock,
+				"endBlock":   endBlock,
+			}).Info("Monitor detected mismatched block hash for event log")
+
+			// block hash not matched, chain reorg during fetch?
+			return errChainReorged
+		}
+
+		// handle contract events
+		var err error
+		switch {
+		case logs[i].Address == m.ControllerAddress: // controller event
+			_, err = m.handleControllerEvent(&logs[i])
+		default: // APP coin or airdrop event
+			_, err = m.handleAppCoinEvent(&logs[i])
+		}
+
+		if err != nil {
+			logger.WithField("log", logs[i]).WithError(err).Info("Monitor failed to handle event log")
+			return errors.WithMessage(err, "failed to handle event log")
+		}
+	}
+
+	blockHash, parentHash := startBlock.Hash, startBlock.ParentHash
+	for i := start; i <= end; i++ {
+		err := m.blockWindow.push(i.Int64(), blockHash, parentHash)
+		if err != nil {
+			logger.WithField("blockNum", i).
+				WithError(err).
+				Error("Monitor failed to push block into cache window")
+			m.blockWindow.reset()
+		}
+
+		parentHash = blockHash
+		blockHash = common.Hash{}
+
+		if i == end-1 {
+			blockHash = endBlock.Hash
+		}
+	}
+
+	m.SyncFromBlockNumber = end.Int64() + 1
+	return nil
 }
 
 func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
@@ -220,233 +379,4 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 
 	m.SyncFromBlockNumber++
 	return int64(syncBlockNum) == goAfterBlockNumber, nil
-}
-
-func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
-	airdropAbi, err := contract.AirdropMetaData.GetAbi()
-	if err != nil {
-		return false, errors.WithMessage(err, "failed to get airdrop contract ABI")
-	}
-
-	// `Drop` event concerned only
-	airdropDropEventId := airdropAbi.Events[contract.EventAirdropDrop].ID
-	if log.Topics[0] != airdropDropEventId {
-		return false, nil
-	}
-
-	eventAirdropDrop, err := contract.UnpackAirdropDrop(airdropAbi, log)
-	if err != nil {
-		return false, err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"airdropTo": eventAirdropDrop.To,
-		"Amount":    eventAirdropDrop.Amount.Int64(),
-		"Reason":    eventAirdropDrop.Reason,
-	})
-
-	if err := m.contractEventObserver.OnDrop(eventAirdropDrop, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle airdrop event")
-		return false, err
-	}
-
-	logger.Debug("Monitor handled airdrop event")
-	return true, nil
-}
-
-func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
-	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
-	if err != nil {
-		return false, errors.WithMessage(err, "failed to get APP coin contract ABI")
-	}
-
-	switch log.Topics[0] {
-	case appCoinAbi.Events[contract.EventAppCoinTransferSingle].ID:
-		// transfer
-		err = m.handleAppCoinTransferSingle(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID:
-		// frozen
-		err = m.handleAppCoinFrozen(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCointWithdraw].ID:
-		// withdraw
-		err = m.handleAppCoinWithdraw(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID:
-		// resource changed
-		err = m.handleAppCoinResourceChanged(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppOwnerChanged].ID:
-		// owner changed
-		err = m.handleAppOwnerChanged(appCoinAbi, log)
-	default: // maybe airdrop event?
-		return m.handleAirdropEvent(log)
-	}
-
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinResrcChanged, err := contract.UnpackAppCoinResourceChanged(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"resourceId":     eventAppCoinResrcChanged.Id,
-		"resourceWeight": eventAppCoinResrcChanged.Weight.Int64(),
-		"Op":             eventAppCoinResrcChanged.Op,
-	})
-
-	if err := m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin resource changed event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin resource changed event")
-	return nil
-}
-
-func (m *Monitor) handleAppOwnerChanged(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppOwnerChanged, err := contract.UnpackAPPCoinAppOwnerChanged(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"appCoinContract": log.Address,
-		"newOwner":        eventAppOwnerChanged.To,
-	})
-
-	if err := m.contractEventObserver.OnAppOwnerChanged(eventAppOwnerChanged, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin owner changed event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin owner changed event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinWithdraw, err := contract.UnpackAppCoinWithdraw(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"withdrawAccount": eventAppCoinWithdraw.Account,
-		"withdrawAmount":  eventAppCoinWithdraw.Amount.Int64(),
-	})
-
-	if err := m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin withdraw event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin withdraw event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinFrozen, err := contract.UnpackAppCoinFrozen(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithField("frozenAddress", eventAppCoinFrozen.Addr)
-
-	if err := m.contractEventObserver.OnFrozen(eventAppCoinFrozen, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APPCoin frozen event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APPCoin frozen event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinTransfer, err := contract.UnpackAPPCoinTransferSingle(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	if !util.IsZeroAddress(eventAppCoinTransfer.From) { // not a minted event?
-		return nil
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"transferOperator": eventAppCoinTransfer.Operator,
-		"transferFrom":     eventAppCoinTransfer.From,
-		"transferTo":       eventAppCoinTransfer.To,
-		"transferId":       eventAppCoinTransfer.Id,
-		"transferValue":    eventAppCoinTransfer.Value.Int64(),
-	})
-
-	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin transfer event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin transfer event")
-	return nil
-}
-
-func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
-	controllerAbi, err := contract.ControllerMetaData.GetAbi()
-	if err != nil {
-		return false, errors.WithMessage(err, "failed to get controller contract ABI")
-	}
-
-	// `APP_CREATED` event concerned only
-	appCreatedEventId := controllerAbi.Events[contract.EventControllerAppCreated].ID
-	if log.Topics[0] != appCreatedEventId {
-		return false, nil
-	}
-
-	eventAppCreated, err := contract.UnpackControllerAPPCREATED(controllerAbi, log)
-	if err != nil {
-		return false, err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"AppCoin": eventAppCreated.Addr, "AppCoinOwner": eventAppCreated.AppOwner,
-	})
-
-	if m.FilterCreatorAddress != nil && *m.FilterCreatorAddress != eventAppCreated.AppOwner {
-		// not an APP coin by concerned creator
-		logger.Debug("Monitor skipped APPCreated event due to not a concerned APP coin creator")
-		return false, nil
-	}
-
-	// add observing for new created APP coin
-	for i := range m.AppCoinAddresses {
-		if m.AppCoinAddresses[i] == eventAppCreated.Addr { // already exists?
-			logger.Debug("Monitor skipped APPCreated event due to already existed")
-			return false, nil
-		}
-	}
-
-	m.AppCoinAddresses = append(m.AppCoinAddresses, eventAppCreated.Addr)
-
-	if err := m.contractEventObserver.OnAppCreated(eventAppCreated, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APPCreated event")
-		return false, err
-	}
-
-	logger.Debug("Monitor handled APPCreated event")
-	return true, nil
-}
-
-func (m *Monitor) reorgRevert(revertToBlock int64) error {
-	logrus.WithField("revertToBlock", revertToBlock).Info("Monitor reorg reverted")
-
-	// remove block hash of reverted block from cache window
-	m.blockWindow.popn(revertToBlock)
-
-	// reset syncer start block
-	m.SyncFromBlockNumber = revertToBlock
-
-	// notify observer for reorg revert
-	return m.contractEventObserver.OnReorgRevert(revertToBlock)
 }

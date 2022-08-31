@@ -67,6 +67,10 @@ func (ms *MemStore) Close() error {
 	return nil
 }
 
+func (ms *MemStore) SaveAccountWithTxn(txn *memdb.Txn, account *model.AppCoinAccount) error {
+	return txn.Insert("account", account)
+}
+
 func (ms *MemStore) SaveAccount(account *model.AppCoinAccount) error {
 	txn := ms.Txn(true)
 

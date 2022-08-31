@@ -12,12 +12,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (bs *BlockchainService) addStatusConfirmTask(coin, addr common.Address) {
+func (bs *BlockchainService) addStatusConfirmTask(coin, addr common.Address) bool {
 	logrus.WithFields(logrus.Fields{
 		"appCoin": coin, "address": addr,
 	}).Debug("Blockchain service adding APP coin status confirmation task")
 
+	if len(bs.appCoinStatusConfirmQueue) >= statusConfirmQueueSize {
+		logrus.Warn("APP coin status confirmation queue full")
+		return false
+	}
+
 	bs.appCoinStatusConfirmQueue <- [2]common.Address{coin, addr}
+	return true
 }
 
 // implements `ContractEventObserver` interface
