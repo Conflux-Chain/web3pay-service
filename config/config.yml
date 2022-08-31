@@ -27,7 +27,7 @@ metrics:
 
 # Logs Configurations
 log:
-  level: debug
+  level: info
 
 # Alert Configurations
 alert:
