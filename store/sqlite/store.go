@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store"
 	"github.com/pkg/errors"
@@ -67,8 +68,11 @@ func (ms *SqliteStore) GetBill(coin, addr string, status int) (*model.Bill, bool
 }
 
 func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) (*model.Bill, error) {
+	start := time.Now()
+
 	bill, existed, err := ms.GetBill(coin, addr, model.BillStatusCreated)
 	if err != nil {
+		metrics.Store.UpsertBillQps(err).UpdateSince(start)
 		return nil, errors.WithMessage(err, "failed to load bill")
 	}
 
@@ -83,6 +87,7 @@ func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) 
 		}
 
 		if err := tx.Create(bill).Error; err != nil {
+			metrics.Store.UpsertBillQps(err).UpdateSince(start)
 			return nil, errors.WithMessage(err, "failed to create bill")
 		}
 
@@ -92,8 +97,10 @@ func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) 
 	// update
 	bill.Fee = bill.Fee.Add(decimal.NewFromBigInt(fee, 0))
 	if err := tx.Model(&model.Bill{}).Where("id = ?", bill.ID).Update("fee", bill.Fee).Error; err != nil {
+		metrics.Store.UpsertBillQps(err).UpdateSince(start)
 		return nil, errors.WithMessage(err, "failed to update bill")
 	}
 
-	return bill, err
+	metrics.Store.UpsertBillQps(nil).UpdateSince(start)
+	return bill, nil
 }

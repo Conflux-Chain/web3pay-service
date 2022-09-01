@@ -1,7 +1,15 @@
 package metrics
 
+import (
+	"github.com/Conflux-Chain/web3pay-service/util"
+	"github.com/ethereum/go-ethereum/metrics"
+)
+
 var (
-	RPC RpcMetrics
+	RPC     RpcMetrics
+	Monitor MonitorMetrics
+	Store   StoreMetrics
+	Worker  WorkerMetrics
 )
 
 // RPC metrics
@@ -55,4 +63,70 @@ func (*RpcMetrics) UpdateWithCollector(c *RpcCollector) {
 	case c.is5xx():
 		GetOrRegisterTimer("web3pay/rpc/duration/5xx/%v", module).UpdateSince(c.start)
 	}
+}
+
+// MonitorMetrics service metrics
+type MonitorMetrics struct{}
+
+func (m *MonitorMetrics) SyncOnceQps(err error) metrics.Timer {
+	if util.IsInterfaceValNil(err) {
+		return GetOrRegisterTimer("web3pay/monitor/sync/once/success")
+	}
+
+	return GetOrRegisterTimer("web3pay/monitor/sync/once/failure")
+}
+
+func (m *MonitorMetrics) ConfirmQps(err error) metrics.Timer {
+	if util.IsInterfaceValNil(err) {
+		return GetOrRegisterTimer("web3pay/monitor/confirm/success")
+	}
+
+	return GetOrRegisterTimer("web3pay/monitor/confirm/failure")
+}
+
+// Store metrics
+type StoreMetrics struct{}
+
+func (*StoreMetrics) UpsertBillQps(err error) metrics.Timer {
+	if util.IsInterfaceValNil(err) {
+		return GetOrRegisterTimer("web3pay/store/sqlite/upsertBill/success")
+	}
+
+	return GetOrRegisterTimer("web3pay/store/sqlite/upsertBill/failure")
+}
+
+// Worker metrics
+type WorkerMetrics struct{}
+
+func (m *WorkerMetrics) PollOnceQps(err error) metrics.Timer {
+	if util.IsInterfaceValNil(err) {
+		return GetOrRegisterTimer("web3pay/worker/poll/once/success")
+	}
+
+	return GetOrRegisterTimer("web3pay/worker/poll/once/failure")
+}
+
+func (m *WorkerMetrics) PollOnceSize() metrics.Histogram {
+	return GetOrRegisterHistogram("web3pay/worker/poll/once/size")
+}
+
+func (m *WorkerMetrics) ConfirmOnceQps() metrics.Timer {
+	return GetOrRegisterTimer("web3pay/worker/confirm/once")
+}
+
+func (m *WorkerMetrics) UpdateConfirmOnceSize(total, success, retry, reconfirm int) {
+	GetOrRegisterHistogram("web3pay/worker/confirm/once/size").Update(int64(total))
+	GetOrRegisterHistogram("web3pay/worker/confirm/once/success/size").Update(int64(success))
+	GetOrRegisterHistogram("web3pay/worker/confirm/once/retry/size").Update(int64(retry))
+	GetOrRegisterHistogram("web3pay/worker/confirm/once/reconfirm/size").Update(int64(reconfirm))
+}
+
+func (m *WorkerMetrics) SettleOnceQps() metrics.Timer {
+	return GetOrRegisterTimer("web3pay/worker/settle/once")
+}
+
+func (m *WorkerMetrics) UpdateSettleOnceSize(total, success, failure int) {
+	GetOrRegisterHistogram("web3pay/worker/settle/once/size").Update(int64(total))
+	GetOrRegisterHistogram("web3pay/worker/settle/once/success/size").Update(int64(success))
+	GetOrRegisterHistogram("web3pay/worker/settle/once/failure/size").Update(int64(failure))
 }
