@@ -152,7 +152,7 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 
 		return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
 			customerKey, ok := option.CustomerKeyProvider(ctx)
-			if !ok { // customer key provided?
+			if !ok || len(customerKey) == 0 { // customer key provided?
 				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
 				return wrapup(ctx, msg, bs)
 			}
@@ -225,7 +225,7 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 			ctx := r.Context()
 
 			customerKey, ok := option.CustomerKeyProvider(ctx)
-			if !ok { // customer key provided?
+			if !ok || len(customerKey) == 0 { // customer key provided?
 				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
 				wrapup(w, r, bs)
 				return
