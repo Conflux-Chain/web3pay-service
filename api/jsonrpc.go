@@ -33,6 +33,7 @@ func (api *JrBillingApi) Bill(r *http.Request, args *service.BillingRequest, rep
 	receipt, err := api.billingSvc.Bill(ctx, args)
 	if err != nil {
 		logger.WithError(err).Debug("Billing failed")
+		metricCollectRpcError(ctx, err)
 
 		if bizerr, ok := err.(*model.BusinessError); ok {
 			*reply = bizerr
@@ -64,6 +65,7 @@ func (api *JrBillingApi) BillBatch(r *http.Request, args *service.BillingBatchRe
 	receipt, err := api.billingSvc.BillBatch(ctx, args)
 	if err != nil {
 		logger.WithError(err).Debug("Billing batch failed")
+		metricCollectRpcError(ctx, err)
 
 		if bizerr, ok := err.(*model.BusinessError); ok {
 			*reply = bizerr
@@ -92,13 +94,15 @@ func newJsonRpcServer(svcFactory *service.Factory) *rpc.Server {
 }
 
 func respJsonRpcError(ctx context.Context, rw http.ResponseWriter, err error) {
+	metricCollectRpcError(ctx, err)
+
 	resp := jsonrpc.RPCResponse{JSONRPC: "2.0"}
 	msg := jsonRpcMessageFromContext(ctx)
 	if msg != nil {
 		resp.ID = msg.ID
 	}
 
-	if bizerr, ok := err.(*model.BusinessError); ok { // business error?
+	if bizerr, ok := model.IsBusinessError(err); ok { // business error?
 		resp.Result = bizerr
 	} else { // non-buisiness error?
 		rpcerr, ok := err.(*jsonrpc.RPCError)
