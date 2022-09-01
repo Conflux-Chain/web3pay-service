@@ -14,22 +14,33 @@ import (
 
 	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
 	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
+	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/negroni"
 )
 
 type reqCtxKey string
 
 var (
-	ctxKeyRequestId    reqCtxKey = "reqId"
-	ctxKeyContractAddr reqCtxKey = "contractAddr"
-	ctxKeyCustomerAddr reqCtxKey = "customerAddr"
-	ctxKeyJsonRpcMsg   reqCtxKey = "jsonRpcMsg"
+	ctxKeyRequestId       reqCtxKey = "reqId"
+	ctxKeyMetricCollector reqCtxKey = "metricCollector"
+	ctxKeyContractAddr    reqCtxKey = "contractAddr"
+	ctxKeyCustomerAddr    reqCtxKey = "customerAddr"
+	ctxKeyJsonRpcMsg      reqCtxKey = "jsonRpcMsg"
 )
+
+func metricCollectorFromContext(ctx context.Context) metrics.Collector {
+	if c, ok := ctx.Value(ctxKeyMetricCollector).(metrics.Collector); ok {
+		return c
+	}
+
+	return nil
+}
 
 func requestIdFromContext(ctx context.Context) string {
 	return ctx.Value(ctxKeyRequestId).(string)
@@ -74,6 +85,20 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		logger.WithField("elapsed", time.Since(start)).Debug("RPC leave")
+	})
+}
+
+func MetricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// inject metrics collector
+		collector := metrics.NewRpcCollector()
+		ctx := context.WithValue(r.Context(), ctxKeyMetricCollector, collector)
+
+		nw := negroni.NewResponseWriter(w)
+		next.ServeHTTP(nw, r.WithContext(ctx))
+
+		collector.Collect(metrics.CollectKeyStatusCode, nw.Status())
+		metrics.RPC.UpdateWithCollector(collector)
 	})
 }
 
@@ -183,6 +208,8 @@ func JsonRpcValidationMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		metricCollectRpcModule(ctx, req.Method)
+
 		// Set a new body with the same data we read before. This is crucial since we need to read it again later.
 		r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyData))
 
@@ -206,4 +233,16 @@ func jsonUnmarshalRequestBody(reqBody io.ReadCloser, ptr interface{}) ([]byte, e
 	}
 
 	return bytes, nil
+}
+
+func metricCollectRpcError(ctx context.Context, err error) {
+	if collector := metricCollectorFromContext(ctx); collector != nil {
+		collector.Collect(metrics.CollectKeyRPCError, err)
+	}
+}
+
+func metricCollectRpcModule(ctx context.Context, module string) {
+	if collector := metricCollectorFromContext(ctx); collector != nil {
+		collector.Collect(metrics.CollectKeyRPCModule, module)
+	}
 }

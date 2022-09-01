@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
-	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -53,33 +51,29 @@ type handlerContext struct {
 }
 
 type wrapper struct {
-	inner func(hc *handlerContext) (interface{}, error)
-	perf  metrics.Timer
+	inner  func(hc *handlerContext) (interface{}, error)
+	module string // used for RPC metrics
 }
 
 func Wrap(
 	controllerFunc func(hc *handlerContext) (interface{}, error),
-	metricName string,
+	module string,
 ) func(w http.ResponseWriter, r *http.Request) {
-	w := wrapper{
-		controllerFunc,
-		metrics.GetOrRegisterTimer(metricName, nil),
-	}
-
+	w := wrapper{controllerFunc, module}
 	return w.wrap
 }
 
 func (w *wrapper) wrap(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	start := time.Now()
+	metricCollectRpcModule(ctx, w.module)
+
 	rw.Header().Set("Content-Type", "application/json")
 
 	result, err := w.inner(&handlerContext{w: rw, r: r})
-	if err != nil {
-		respJsonError(ctx, rw, err)
-	} else {
+	if err == nil {
 		respJsonOK(ctx, rw, result)
-		w.perf.UpdateSince(start)
+	} else {
+		respJsonError(ctx, rw, err)
 	}
 }
 
@@ -90,6 +84,8 @@ func respJsonOK(ctx context.Context, rw http.ResponseWriter, payload interface{}
 }
 
 func respJsonError(ctx context.Context, rw http.ResponseWriter, err error) {
+	metricCollectRpcError(ctx, err)
+
 	var encodingErr error
 
 	switch e := err.(type) {

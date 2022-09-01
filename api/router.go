@@ -36,15 +36,13 @@ func newChainedRouter(svcFactory *service.Factory) *chainedRouter {
 func newRestfulRouter(svcFactory *service.Factory) *mux.Router {
 	r := mux.NewRouter()
 
-	// TODO:
-	// 1. add metrics middleware
-	// 2. add CORS middleware?
+	r.Use(MetricsMiddleware)
 	r.Use(LogTracingMiddleware("REST"))
 	r.Use(LoggingMiddleware)
 	r.Use(AuthMiddleware(r, svcFactory.Blockchain, respJsonError))
 
 	billingCtr := NewBillingController(svcFactory.Billing)
-	r.HandleFunc("/billing", Wrap(billingCtr.Bill, "web3pay/api/billing")).
+	r.HandleFunc("/billing", Wrap(billingCtr.Bill, "billing")).
 		Methods("POST").
 		Headers("Content-Type", "application/json")
 
@@ -54,9 +52,7 @@ func newRestfulRouter(svcFactory *service.Factory) *mux.Router {
 func newJsonRpcRouter(svcFactory *service.Factory) *mux.Router {
 	r := mux.NewRouter()
 
-	// TODO:
-	// 1. add metrics middleware
-	// 2. add CORS middleware?
+	r.Use(MetricsMiddleware)
 	r.Use(JsonRpcValidationMiddleware)
 	r.Use(LogTracingMiddleware("JRPC"))
 	r.Use(LoggingMiddleware)

@@ -24,6 +24,7 @@ require (
 	github.com/spf13/viper v1.10.0
 	github.com/stretchr/testify v1.7.0
 	github.com/subosito/gotenv v1.2.0
+	github.com/urfave/negroni v1.0.0
 	go.uber.org/multierr v1.1.0
 	golang.org/x/net v0.0.0-20220111093109-d55c255bac03
 	gorm.io/driver/sqlite v1.3.6

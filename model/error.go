@@ -33,6 +33,10 @@ func (err *BusinessError) Error() string {
 	return err.Message
 }
 
+func (err *BusinessError) IsNil() bool {
+	return err == nil || err.Code == ErrNil.Code
+}
+
 // GetObject converts the business error data to an arbitrary type.
 //
 // The function works as you would expect it from json.Unmarshal()
@@ -48,4 +52,9 @@ func (be *BusinessError) GetObject(toType interface{}) error {
 	}
 
 	return nil
+}
+
+func IsBusinessError(err error) (*BusinessError, bool) {
+	be, ok := err.(*BusinessError)
+	return be, ok
 }
