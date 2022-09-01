@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go/types"
@@ -88,7 +89,10 @@ func (m *Monitor) Sync() {
 	for {
 		select {
 		case <-ticker.C:
+			start := time.Now()
 			complete, err := m.syncOnce(confirmTasks)
+			metrics.Monitor.SyncOnceQps(err).UpdateSince(start)
+
 			if err != nil || complete {
 				ticker.Reset(m.SyncIntervalNormal)
 			} else {
@@ -346,37 +350,45 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 		m.blockWindow.reset()
 	}
 
+	m.confirmSubscribedAccountStatus(confirmTasks)
+
+	m.SyncFromBlockNumber++
+	return int64(syncBlockNum) == goAfterBlockNumber, nil
+}
+
+func (m *Monitor) confirmSubscribedAccountStatus(confirmTasks *list.List) {
 	// Confirm subscribed APP coin account status
 	baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(m.SyncFromBlockNumber)}
 
 	// TODO: use batch call?
 	for v := confirmTasks.Front(); v != nil; {
+		start := time.Now()
 		task := v.Value.([2]common.Address)
 		coin, addr := task[0], task[1]
 
 		balance, frozen, err := m.provider.GetAppCoinBalanceAndFrozenStatus(baseCallOpt, coin, addr)
 		if err != nil {
-			logger.WithField("confirmTask", task).
+			logrus.WithField("confirmTask", task).
 				WithError(err).
 				Info("Monitor failed to fetch APP coin account status for confirming task")
+			metrics.Monitor.ConfirmQps(err).UpdateSince(start)
 			v = v.Next()
 			continue
 		}
 
 		err = m.contractEventObserver.OnConfirmStatus(coin, addr, balance, frozen, m.SyncFromBlockNumber)
 		if err != nil {
-			logger.WithField("confirmTask", task).
+			logrus.WithField("confirmTask", task).
 				WithError(err).
 				Info("Monitor failed to confirm APP coin account status")
+			metrics.Monitor.ConfirmQps(err).UpdateSince(start)
 			v = v.Next()
 			continue
 		}
 
+		metrics.Monitor.ConfirmQps(err).UpdateSince(start)
 		nv := v.Next()
 		confirmTasks.Remove(v)
 		v = nv
 	}
-
-	m.SyncFromBlockNumber++
-	return int64(syncBlockNum) == goAfterBlockNumber, nil
 }

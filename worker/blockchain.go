@@ -8,6 +8,7 @@ import (
 	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/contract"
+	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
@@ -97,6 +98,9 @@ func (worker *BlockchainWorker) confirm() {
 func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 	var successTasks, reconfirmTasks, retryTasks []*BillTask
 
+	start := time.Now()
+	defer metrics.Worker.ConfirmOnceQps().UpdateSince(start)
+
 	for i := range billTasks {
 		logger := logrus.WithFields(logrus.Fields{
 			"taskBillID": billTasks[i].ID, "txnHash": billTasks[i].TxnHash,
@@ -173,6 +177,10 @@ func (worker *BlockchainWorker) confirmBillTasks(billTasks []*BillTask) {
 		logger.Debug("Blockchain worker finished task confirmation")
 		successTasks = append(successTasks, billTasks[i])
 	}
+
+	metrics.Worker.UpdateConfirmOnceSize(
+		len(billTasks), len(successTasks), len(retryTasks), len(reconfirmTasks),
+	)
 
 	if len(successTasks) > 0 {
 		worker.finishTasks(successTasks)
@@ -270,6 +278,9 @@ func (worker *BlockchainWorker) settle() {
 }
 
 func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successTasks, failureTasks []*BillTask) {
+	start := time.Now()
+	defer metrics.Worker.SettleOnceQps().UpdateSince(start)
+
 	// split tasks && requests group by APP coin for batch operation
 	coinTasks := make(map[string][]*BillTask)
 	coinRequests := make(map[string][]contract.APPCoinChargeRequest)
@@ -343,6 +354,7 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 		successTasks = append(successTasks, tasks...)
 	}
 
+	metrics.Worker.UpdateSettleOnceSize(len(billTasks), len(successTasks), len(failureTasks))
 	return
 }
 
@@ -383,9 +395,11 @@ func (worker *BlockchainWorker) poll() {
 // poll polls for bills to settle on the blockchain.
 func (w *BlockchainWorker) pollOnce() error {
 	if overloaded, reason := w.isOverloaded(); overloaded { // overload protection
-		logrus.WithField("reason", reason).Debug("Blockchain worker skipped polling due to overload")
+		logrus.WithField("reason", reason).Warn("Blockchain worker skipped polling due to overload")
 		return nil
 	}
+
+	start := time.Now()
 
 	util.KLock(service.KeyBillingLocker)
 	defer util.KUnlock(service.KeyBillingLocker)
@@ -395,6 +409,7 @@ func (w *BlockchainWorker) pollOnce() error {
 
 	res := db.Find(&bills, "status = ?", model.BillStatusCreated)
 	if err := res.Error; err != nil {
+		metrics.Worker.PollOnceQps(err).UpdateSince(start)
 		return errors.WithMessage(err, "failed to load bills")
 	}
 
@@ -411,6 +426,7 @@ func (w *BlockchainWorker) pollOnce() error {
 	db = w.sqliteStore.Model(&model.Bill{}).Where("id IN ?", updateBillIds)
 	res = db.Update("status", model.BillStatusSubmitting)
 	if err := res.Error; err != nil {
+		metrics.Worker.PollOnceQps(err).UpdateSince(start)
 		return errors.WithMessage(err, "failed to update bill status")
 	}
 
@@ -423,6 +439,9 @@ func (w *BlockchainWorker) pollOnce() error {
 	logrus.WithField("taskBillIds", updateBillIds).
 		Debug("Blockchain worker polled task bills for settlement")
 	w.billSettlementQueue <- billTasks
+
+	metrics.Worker.PollOnceQps(nil).UpdateSince(start)
+	metrics.Worker.PollOnceSize().Update(int64(len(billTasks)))
 
 	return nil
 }
