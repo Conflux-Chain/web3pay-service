@@ -65,7 +65,7 @@ func (*RpcMetrics) UpdateWithCollector(c *RpcCollector) {
 	}
 }
 
-// MonitorMetrics service metrics
+// Monitor metrics
 type MonitorMetrics struct{}
 
 func (m *MonitorMetrics) SyncOnceQps(err error) metrics.Timer {
