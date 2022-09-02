@@ -46,7 +46,7 @@ func RunRestfulServiceProvider(config web3pay.ClientConfig, port int) error {
 	}
 
 	// hook http server middleware handler
-	mwOption := web3pay.DefaultHttpBillingMiddlewareOption(client)
+	mwOption := web3pay.NewHttpBillingMiddlewareOptionWithClient(client)
 	ckContextInjector := web3pay.CustomerKeyContextInjector(GetCustomerKey)
 	ctxInjectMw := web3pay.HttpInjectContextMiddleware(ckContextInjector)
 	handler := ctxInjectMw(web3pay.HttpBillingMiddleware(mwOption)(mux))

@@ -99,10 +99,15 @@ type BillingMiddlewareOption struct {
 	PropagateInternalServerError bool
 }
 
-func initDefault(option *BillingMiddlewareOption) {
+func NewBillingMiddlewareOptionWithClient(client *Client) *BillingMiddlewareOption {
+	return (&BillingMiddlewareOption{Client: client}).InitDefault()
+}
+
+func (option *BillingMiddlewareOption) InitDefault() *BillingMiddlewareOption {
 	if option.CustomerKeyProvider == nil {
 		option.CustomerKeyProvider = GetCustomerKeyFromContext
 	}
+	return option
 }
 
 // providing openweb3 middleware
@@ -111,23 +116,19 @@ type Ow3Middleware = rpc.HandleCallMsgMiddleware
 type Ow3ResourceIdMapper func(msg *rpc.JsonRpcMessage) string
 
 type Ow3BillingMiddlewareOption struct {
-	BillingMiddlewareOption
+	*BillingMiddlewareOption
 	// gets resource ID from json rpc message
 	ResourceIdMapper Ow3ResourceIdMapper
 }
 
-func DefaultOw3BillingMiddlewareOption(client *Client) *Ow3BillingMiddlewareOption {
+func NewOw3BillingMiddlewareOptionWithClient(client *Client) *Ow3BillingMiddlewareOption {
 	return &Ow3BillingMiddlewareOption{
-		BillingMiddlewareOption: BillingMiddlewareOption{
-			Client: client,
-		},
+		BillingMiddlewareOption: NewBillingMiddlewareOptionWithClient(client),
 	}
 }
 
 // Openweb3BillingMiddleware provides billing RPC middleware for openweb3.
 func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware {
-	initDefault(&option.BillingMiddlewareOption)
-
 	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, bs *BillingStatus) *rpc.JsonRpcMessage {
 			// inject billing status to context
@@ -180,23 +181,33 @@ type HttpMiddleware = func(next http.Handler) http.Handler
 type HttpResourceIdMapper func(req *http.Request) string
 
 type HttpBillingMiddlewareOption struct {
-	BillingMiddlewareOption
+	*BillingMiddlewareOption
 	// gets resource ID from http request
 	ResourceIdMapper HttpResourceIdMapper
 }
 
-func DefaultHttpBillingMiddlewareOption(client *Client) *HttpBillingMiddlewareOption {
-	return &HttpBillingMiddlewareOption{
-		BillingMiddlewareOption: BillingMiddlewareOption{
-			Client: client,
-		},
+func NewHttpBillingMiddlewareOptionWithClient(client *Client) *HttpBillingMiddlewareOption {
+	option := &HttpBillingMiddlewareOption{
+		BillingMiddlewareOption: NewBillingMiddlewareOptionWithClient(client),
 	}
+
+	return option.InitDefault()
+}
+
+func (option *HttpBillingMiddlewareOption) InitDefault() *HttpBillingMiddlewareOption {
+	option.BillingMiddlewareOption.InitDefault()
+
+	if option.ResourceIdMapper == nil {
+		option.ResourceIdMapper = func(r *http.Request) string {
+			return r.URL.Query().Get("rid")
+		}
+	}
+
+	return option
 }
 
 // HttpBillingMiddleware provides billing RPC middleware for net/http.
 func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
-	initDefault(&option.BillingMiddlewareOption)
-
 	return func(next http.Handler) http.Handler {
 		wrapup := func(w http.ResponseWriter, r *http.Request, bs *BillingStatus) {
 			// inject billing status to context
@@ -232,7 +243,7 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 			}
 
 			// mapping resource ID
-			resourceId := r.Method
+			var resourceId string
 			if option.ResourceIdMapper != nil {
 				resourceId = option.ResourceIdMapper(r)
 			}

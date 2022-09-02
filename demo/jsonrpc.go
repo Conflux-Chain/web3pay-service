@@ -40,7 +40,7 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 	}
 
 	// hook web3pay billing middleware for go-rpc-provider
-	mwoption := web3pay.DefaultOw3BillingMiddlewareOption(client)
+	mwoption := web3pay.NewOw3BillingMiddlewareOptionWithClient(client)
 	rpc.HookHandleCallMsg(web3pay.Openweb3BillingMiddleware(mwoption))
 
 	// create JSON-RPC server
