@@ -135,17 +135,21 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 			ctx = context.WithValue(ctx, CtxKeyBillingStatus, bs)
 
 			if bs.Error == nil { // billing successfully?
+				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
 				vipCustomerKeyCache.Add(bs.customerKey, struct{}{})
 				return next(ctx, msg)
 			}
 
 			// handle gateway internal server error
 			if err, ok := bs.InternalServerError(); ok {
-				logrus.WithField("msg", msg).WithError(err).Error("Billing middleware internal server error")
-
 				if !option.PropagateInternalServerError {
 					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
 				}
+
+				logrus.WithFields(logrus.Fields{
+					"msg": msg, "skipError": bs.skipError,
+					"propagateInternalServerError": option.PropagateInternalServerError,
+				}).WithError(err).Error("Billing middleware internal server error")
 			}
 
 			return next(ctx, msg)
@@ -214,7 +218,8 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 			ctx := context.WithValue(r.Context(), CtxKeyBillingStatus, bs)
 			r = r.WithContext(ctx)
 
-			if bs.Error == nil { // billing successfully?
+			if bs.Error == nil { // billing successfull
+				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
 				vipCustomerKeyCache.Add(bs.customerKey, struct{}{})
 				next.ServeHTTP(w, r)
 				return
@@ -222,11 +227,14 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 
 			// handle gateway internal server error
 			if err, ok := bs.InternalServerError(); ok {
-				logrus.WithField("request", r).WithError(err).Error("Billing middleware internal server error")
-
 				if !option.PropagateInternalServerError {
 					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
 				}
+
+				logrus.WithFields(logrus.Fields{
+					"request": r, "skipError": bs.skipError,
+					"propagateInternalServerError": option.PropagateInternalServerError,
+				}).WithError(err).Error("Billing middleware internal server error")
 			}
 
 			next.ServeHTTP(w, r)
