@@ -3,29 +3,28 @@ package metrics
 import (
 	"fmt"
 
+	mutil "github.com/Conflux-Chain/go-conflux-util/metrics"
 	"github.com/ethereum/go-ethereum/metrics"
 )
 
-var Web3PayRegistry = metrics.NewRegistry()
-
 func GetOrRegisterCounter(nameFormat string, nameArgs ...interface{}) metrics.Counter {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return metrics.GetOrRegisterCounter(name, Web3PayRegistry)
+	return mutil.GetOrRegisterCounter(name)
 }
 
 func GetOrRegisterGauge(nameFormat string, nameArgs ...interface{}) metrics.Gauge {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return metrics.GetOrRegisterGauge(name, Web3PayRegistry)
+	return mutil.GetOrRegisterGauge(name)
 }
 
 func GetOrRegisterGaugeFloat64(nameFormat string, nameArgs ...interface{}) metrics.GaugeFloat64 {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return metrics.GetOrRegisterGaugeFloat64(name, Web3PayRegistry)
+	return mutil.GetOrRegisterGaugeFloat64(name)
 }
 
 func GetOrRegisterMeter(nameFormat string, nameArgs ...interface{}) metrics.Meter {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return metrics.GetOrRegisterMeter(name, Web3PayRegistry)
+	return mutil.GetOrRegisterMeter(name)
 }
 
 func NewHistogram() metrics.Histogram {
@@ -34,10 +33,10 @@ func NewHistogram() metrics.Histogram {
 
 func GetOrRegisterHistogram(nameFormat string, nameArgs ...interface{}) metrics.Histogram {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return Web3PayRegistry.GetOrRegister(name, NewHistogram).(metrics.Histogram)
+	return mutil.GetOrRegisterHistogram(name)
 }
 
 func GetOrRegisterTimer(nameFormat string, nameArgs ...interface{}) metrics.Timer {
 	name := fmt.Sprintf(nameFormat, nameArgs...)
-	return metrics.GetOrRegisterTimer(name, Web3PayRegistry)
+	return mutil.GetOrRegisterTimer(name)
 }

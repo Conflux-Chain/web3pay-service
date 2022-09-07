@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	mutil "github.com/Conflux-Chain/go-conflux-util/metrics"
 	"github.com/ethereum/go-ethereum/metrics"
 )
 
@@ -30,7 +31,7 @@ func GetOrRegisterPercentage(name string, args ...interface{}) Percentage {
 // getOrRegisterPercentage gets or constructs Percentage with specified factory.
 func getOrRegisterPercentage(factory func() Percentage, name string, args ...interface{}) Percentage {
 	metricName := fmt.Sprintf(name, args...)
-	return Web3PayRegistry.GetOrRegister(metricName, factory).(Percentage)
+	return mutil.DefaultRegistry.GetOrRegister(metricName, factory).(Percentage)
 }
 
 // noopPercentage is no-op implementation for Percentage interface.
