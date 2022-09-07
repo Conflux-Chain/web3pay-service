@@ -3,7 +3,7 @@ module github.com/Conflux-Chain/web3pay-service
 go 1.15
 
 require (
-	github.com/Conflux-Chain/go-conflux-util v0.0.0-20220216032819-554815f9dbe6
+	github.com/Conflux-Chain/go-conflux-util v0.0.0-20220907035343-2d1233bccd70
 	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.10.15
 	github.com/gammazero/workerpool v1.1.2
@@ -36,3 +36,6 @@ require (
 	golang.org/x/sys v0.0.0-20220405052023-b1e9470b6e64 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
+
+// for debugging development
+// replace github.com/Conflux-Chain/go-conflux-util => ../go-conflux-util
