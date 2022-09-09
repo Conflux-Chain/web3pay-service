@@ -12,6 +12,11 @@ const (
 	OpCodeResourceConfigUpdate
 	OpCodeResourceConfigDelete
 	OpCodeResourceConfigNoPending
+
+	// token id for fungible token (ERC20, APP Coin)
+	FT_ID          = 0
+	AIRDROP_ID     = 1
+	TAKE_PROFIT_ID = 2
 )
 
 var (

@@ -137,6 +137,8 @@ func (svc *BlockchainService) WriteOffAccountFee(appCoin, address common.Address
 	}
 
 	account.DecreaseFee(amount)
+	account.DecreaseBalance(amount)
+
 	return true, nil
 }
 
@@ -164,7 +166,22 @@ func (svc *BlockchainService) WithholdAccountFee(appCoin, address common.Address
 }
 
 // IncreaseAccountBalance increases APP coin balance of specific account.
-func (svc *BlockchainService) IncreaseAccountBalance(appCoin, address common.Address, amount *big.Int, block int64) (bool, error) {
+func (svc *BlockchainService) IncreaseAccountBalance(
+	appCoin, address common.Address, amount *big.Int, block int64) (bool, error) {
+
+	return svc.changeAccountBalance(appCoin, address, amount, block)
+}
+
+// DecreaseAccountBalance decreases APP coin balance of specific account.
+func (svc *BlockchainService) DecreaseAccountBalance(
+	appCoin, address common.Address, amount *big.Int, block int64) (bool, error) {
+
+	return svc.changeAccountBalance(appCoin, address, amount, block, true)
+}
+
+func (svc *BlockchainService) changeAccountBalance(
+	appCoin, address common.Address, amount *big.Int, block int64, decrease ...bool) (bool, error) {
+
 	lockKey := util.MutexKey(appCoin.String() + address.String())
 	util.KLock(lockKey)
 	defer util.KUnlock(lockKey)
@@ -186,6 +203,11 @@ func (svc *BlockchainService) IncreaseAccountBalance(appCoin, address common.Add
 		return false, nil
 	}
 
-	account.Balance = account.Balance.Add(decimal.NewFromBigInt(amount, 0))
+	if len(decrease) > 0 && decrease[0] {
+		account.DecreaseBalance(amount)
+	} else {
+		account.IncreaseBalance(amount)
+	}
+
 	return true, nil
 }
