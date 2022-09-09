@@ -1,6 +1,8 @@
 package service
 
 import (
+	"math/big"
+
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
 	"github.com/Conflux-Chain/web3pay-service/util"
@@ -110,6 +112,8 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 
 	if req.DryRun { // for simulation only?
 		logger.Debug("Billing skipped for dry run")
+		receipt.Balance = big.NewInt(0).
+			Sub(appCoinAccount.TotalBalance(), totalCost.BigInt()).String()
 		return receipt, nil
 	}
 
