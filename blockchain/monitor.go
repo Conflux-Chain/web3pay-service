@@ -362,7 +362,7 @@ func (m *Monitor) confirmSubscribedAccountStatus(confirmTasks *list.List) {
 	// Confirm subscribed APP coin account status
 	baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(m.SyncFromBlockNumber)}
 
-	// TODO: use batch call?
+	// TODO: use batch call or multiple call?
 	for v := confirmTasks.Front(); v != nil; {
 		start := time.Now()
 		task := v.Value.([2]common.Address)

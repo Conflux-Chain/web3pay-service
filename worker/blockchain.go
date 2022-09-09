@@ -323,35 +323,98 @@ func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successT
 			"batchChargeBillTasks": taskInfos,
 		})
 
-		txn, err := worker.provider.BatchChargeAppCoinBills(
-			&bind.TransactOpts{}, common.HexToAddress(coin), req,
+		// prepare the transaction to be sent
+		sendTxn, err := worker.provider.BatchChargeAppCoinBills(
+			&bind.TransactOpts{NoSend: true}, common.HexToAddress(coin), req,
 		)
 
-		// TODO: distinguish between different error types
-		// https://developer.confluxnetwork.org/sending-tx/en/transaction_send_common_error
-		// eg.,
-		// 1. transaction pool full error
-		// 2. duplicated txn error
-		// 3. network error
-		if err != nil {
-			logger.WithError(err).Info("Blockchain worker failed to call batch bill charge request")
-			failureTasks = append(failureTasks, tasks...)
-			for i := range tasks { // update task memo
-				tasks[i].Memo = err.Error()
-			}
+		var rawTxnData []byte
+		var txnHash common.Hash
+		var isRawTxnSendErr bool
 
-			continue
+		if err != nil {
+			err = errors.WithMessage(err, "failed to prepare the batch bill charging transaction")
+			goto failure
 		}
 
-		txnHash := txn.Hash().String()
+		// RLP encoding the to send transaction
+		rawTxnData, err = sendTxn.MarshalBinary()
+		if err != nil {
+			err = errors.WithMessage(err, "failed to RLP encoding the batch bill charging transaction")
+			goto failure
+		}
+
+		// submmit to the transaction pool
+		txnHash, err = worker.provider.SendRawTransaction(rawTxnData)
+		if err == nil && txnHash != sendTxn.Hash() {
+			err = errors.New("unexpected transaction hash after raw txn sent")
+			goto failure
+		}
+
+		if err != nil {
+			err = errors.New("failed to send the batch bill charging raw transaction")
+			isRawTxnSendErr, txnHash = true, sendTxn.Hash()
+			goto failure
+		}
+
+	success:
 		logger.WithField("txnHash", txnHash).Debug("Blockchain worker batch bill charged requests called")
 
 		for i := range tasks { // update task info
-			tasks[i].TxnHash = txnHash
+			tasks[i].TxnHash = txnHash.String()
 			tasks[i].SubmittedAt = time.Now()
 		}
 
 		successTasks = append(successTasks, tasks...)
+		continue
+
+	failure:
+		if isRawTxnSendErr {
+			// distinguish between different error types
+			// https://developer.confluxnetwork.org/sending-tx/en/transaction_send_common_error
+			switch {
+			case isTxnAlreadyExistError(err):
+				// txn already exists
+				logger.WithError(err).Info("Blockchain worker found duplicate txn for bill charging request")
+				goto success
+			case isTxnPollFullError(err):
+				// txn pool full
+			case isTxnNonceAlreadyExistsError(err):
+				// txn nonce already exists
+			case isTxnNonceTooStaleError(err):
+				// txn nonce too stale
+			case isTxnNonceTooFutureError(err):
+				// txn nonce too future
+			case isTxnGasTooSmallError(err):
+				// txn gas too small
+			case isTxnGasTooLargeError(err):
+				// txn gas too large
+			case isTxnGasPriceIsZeroError(err):
+				// txn gas price is zero
+			default:
+				// In case of the same billing task submitted multiple times, we'd better to ensure the
+				// transaction not put into the transaction pool yet due to some network failure.
+				for {
+					txn, err := worker.provider.TransactionByHash(txnHash)
+					if err == nil {
+						if txn != nil { // txn already exists
+							goto success
+						}
+						break
+					}
+
+					logger.WithError(err).Info("Blockchain worker failed to check batch bill charging transaction")
+					time.Sleep(time.Second)
+				}
+			}
+		}
+
+		logger.WithError(err).Info("Blockchain worker failed to request batch billing charge")
+
+		failureTasks = append(failureTasks, tasks...)
+		for i := range tasks { // update task memo
+			tasks[i].Memo = err.Error()
+		}
 	}
 
 	metrics.Worker.UpdateSettleOnceSize(len(billTasks), len(successTasks), len(failureTasks))
