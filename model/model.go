@@ -86,6 +86,30 @@ func (account *AppCoinAccount) IncreaseFee(delta *big.Int) {
 	account.Fee = account.Fee.Add(decimal.NewFromBigInt(delta, 0))
 }
 
-func (account *AppCoinAccount) DecreaseFee(delta *big.Int) {
-	account.Fee = account.Fee.Sub(decimal.NewFromBigInt(delta, 0))
+func (account *AppCoinAccount) DecreaseFee(delta *big.Int) bool {
+	deltaD := decimal.NewFromBigInt(delta, 0)
+	newFee, overflow := decreasePositiveDecimal(account.Fee, deltaD)
+	account.Fee = newFee
+
+	return overflow
+}
+
+func (account *AppCoinAccount) IncreaseBalance(delta *big.Int) {
+	account.Balance = account.Balance.Add(decimal.NewFromBigInt(delta, 0))
+}
+
+func (account *AppCoinAccount) DecreaseBalance(delta *big.Int) bool {
+	deltaD := decimal.NewFromBigInt(delta, 0)
+	newBalance, overflow := decreasePositiveDecimal(account.Balance, deltaD)
+	account.Balance = newBalance
+
+	return overflow
+}
+
+func decreasePositiveDecimal(value, delta decimal.Decimal) (decimal.Decimal, bool) {
+	if value.Cmp(delta) <= 0 {
+		return decimal.Zero.Copy(), true
+	}
+
+	return value.Sub(delta), false
 }

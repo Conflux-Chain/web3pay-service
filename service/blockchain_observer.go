@@ -6,6 +6,7 @@ import (
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/openweb3/web3go/types"
@@ -107,26 +108,60 @@ func (bs *BlockchainService) OnDrop(event *contract.AirdropDrop, rawlog *types.L
 }
 
 func (bs *BlockchainService) OnTransfer(event *contract.APPCoinTransferSingle, rawlog *types.Log) error {
-	if event.Value.Cmp(big.NewInt(0)) == 0 {
+	// only minted and burnt event for `FT_ID` token concerned only
+	if event.Value.Cmp(big.NewInt(0)) == 0 || event.Id.Cmp(big.NewInt(contract.FT_ID)) != 0 {
 		return nil
 	}
 
-	depositReq := &DepositRequest{
-		Coin:        rawlog.Address,
-		Address:     event.To,
-		Amount:      event.Value,
-		TxHash:      rawlog.TxHash,
-		BlockHash:   rawlog.BlockHash,
-		BlockNumber: int64(rawlog.BlockNumber),
-		SubmitAt:    time.Now(),
+	// for minted event, depositing balance
+	if util.IsZeroAddress(event.From) {
+		return bs.deposit(&DepositRequest{
+			Coin:        rawlog.Address,
+			Address:     event.To,
+			Amount:      event.Value,
+			TxHash:      rawlog.TxHash,
+			BlockHash:   rawlog.BlockHash,
+			BlockNumber: int64(rawlog.BlockNumber),
+			SubmitAt:    time.Now(),
+		})
 	}
+
+	// for burnt event, deducting account balance
+	if util.IsZeroAddress(event.To) {
+		logger := logrus.WithFields(logrus.Fields{
+			"appCoinAddress": rawlog.Address,
+			"accountAddress": event.From,
+			"amount":         event.Value.Int64(),
+			"blockNumber":    rawlog.BlockNumber,
+			"operator":       event.Operator,
+		})
+
+		// skip transfer burnt event from transactions initiated by our operator
+		if event.Operator == bs.provider.OperatorAddress() {
+			logger.Debug("Blockchain service skipped transfer burnt event due to inner operator")
+			return nil
+		}
+
+		decreased, err := bs.DecreaseAccountBalance(
+			rawlog.Address, event.From, event.Value, int64(rawlog.BlockNumber),
+		)
+
+		logger.WithField("decreased", decreased).
+			WithError(err).
+			Debug("Blockchain service `OnTransfer` burnt event handled")
+		return err
+	}
+
+	return nil
+}
+
+func (bs *BlockchainService) deposit(depositReq *DepositRequest) error {
 	err := bs.DepositPending(depositReq)
 
 	logrus.WithFields(logrus.Fields{
 		"depositRequest": depositReq,
 		"amount":         depositReq.Amount.Int64(),
-	}).WithError(err).Debug("Blockchain service `OnTransfer` event handled")
-
+	}).WithError(err).Debug("Blockchain service pending deposited balance for `OnTransfer` event")
 	return err
 }
 

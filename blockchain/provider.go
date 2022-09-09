@@ -37,6 +37,7 @@ type Provider struct {
 	*client.RpcEthClient
 	Config
 
+	operatorAddr         common.Address
 	bindCallContext      *contractBindCallContext
 	controller           *contract.Controller
 	mutex                sync.Mutex
@@ -45,6 +46,12 @@ type Provider struct {
 }
 
 func MustNewProvider(config *Config) *Provider {
+	// parse operator address from private key
+	operatorAddr, err := util.AddressFromEcdsaPrivateKeyString(config.OperatorPrivateKey)
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to parse operator address")
+	}
+
 	// sign manager
 	signerMgr := signers.MustNewSignerManagerByPrivateKeyStrings([]string{config.OperatorPrivateKey})
 	signerAddr := signerMgr.List()[0].Address()
@@ -74,6 +81,7 @@ func MustNewProvider(config *Config) *Provider {
 	return &Provider{
 		RpcEthClient: w3c.Eth,
 		Config:       *config,
+		operatorAddr: operatorAddr,
 		bindCallContext: &contractBindCallContext{
 			signerAddress:  signerAddr,
 			contractClient: clientForContract,
@@ -82,6 +90,11 @@ func MustNewProvider(config *Config) *Provider {
 		controller:           ctrlCaller,
 		referenceBlockNumber: refBlockNum,
 	}
+}
+
+// OperatorAddress returns the operator address.
+func (p *Provider) OperatorAddress() common.Address {
+	return p.operatorAddr
 }
 
 // ReferenceBlockNumber returns reference block number.

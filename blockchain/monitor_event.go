@@ -158,7 +158,8 @@ func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Lo
 		return err
 	}
 
-	if !util.IsZeroAddress(eventAppCoinTransfer.From) { // not a minted event?
+	if !util.IsZeroAddress(eventAppCoinTransfer.From) &&
+		!util.IsZeroAddress(eventAppCoinTransfer.To) { // not a minted event or burnt event?
 		return nil
 	}
 

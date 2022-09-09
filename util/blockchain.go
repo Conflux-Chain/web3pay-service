@@ -38,3 +38,22 @@ func EcdsaPrivateKeyFromString(privateKeyStr string) (*ecdsa.PrivateKey, error) 
 
 	return opPrivateKey, nil
 }
+
+func AddressFromEcdsaPrivateKey(privateKey *ecdsa.PrivateKey) (common.Address, error) {
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return common.Address{}, errors.New("not a valid ECDSA private key")
+	}
+
+	return crypto.PubkeyToAddress(*publicKeyECDSA), nil
+}
+
+func AddressFromEcdsaPrivateKeyString(privateKeyStr string) (common.Address, error) {
+	privKey, err := EcdsaPrivateKeyFromString(privateKeyStr)
+	if err != nil {
+		return common.Address{}, errors.WithMessage(err, "failed to parse private key")
+	}
+
+	return AddressFromEcdsaPrivateKey(privKey)
+}
