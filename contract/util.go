@@ -17,6 +17,7 @@ const (
 	FT_ID          = 0
 	AIRDROP_ID     = 1
 	TAKE_PROFIT_ID = 2
+	BILLING_ID     = 3
 )
 
 var (

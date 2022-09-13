@@ -2,10 +2,13 @@ package service
 
 import (
 	"math/big"
+	"time"
 
+	"github.com/Conflux-Chain/go-conflux-util/viper"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/openweb3/web3go/types"
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
@@ -210,4 +213,56 @@ func (svc *BlockchainService) changeAccountBalance(
 	}
 
 	return true, nil
+}
+
+// checkOperatorBalance periodically check operator balance.
+func (bs *BlockchainService) checkOperatorBalance() {
+	var config struct {
+		OperatorBalanceCheckInterval  time.Duration `default:"30m"`
+		OperatorBalanceCheckThreshold int64         `default:"15"`
+	}
+	viper.MustUnmarshalKey("blockchain", &config)
+
+	bs.checkOperatorBalanceOnce(config.OperatorBalanceCheckThreshold)
+
+	ticker := time.NewTicker(config.OperatorBalanceCheckInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		err := bs.checkOperatorBalanceOnce(config.OperatorBalanceCheckThreshold)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to check operator balance once")
+			ticker.Reset(config.OperatorBalanceCheckInterval / 2)
+		} else {
+			ticker.Reset(config.OperatorBalanceCheckInterval)
+		}
+	}
+}
+
+func (bs *BlockchainService) checkOperatorBalanceOnce(threshold int64) error {
+	blockNum := types.BlockNumberOrHashWithNumber(types.LatestBlockNumber)
+	operatorAddr := bs.provider.OperatorAddress()
+
+	balance, err := bs.provider.Balance(operatorAddr, &blockNum)
+	if err != nil {
+		logrus.WithField("operatorAddr", operatorAddr).WithError(err).Info("Failed to check operator CFX blance")
+		return err
+	}
+
+	thresholdD := decimal.NewFromInt(threshold).Mul(decimal.New(1, 18))
+	balanceD := decimal.NewFromBigInt(balance, 0)
+
+	logger := logrus.WithFields(logrus.Fields{
+		"operatorAddr": operatorAddr,
+		"balance":      balanceD.Div(decimal.New(1, 18)).StringFixed(2),
+		"threshold":    thresholdD.Div(decimal.New(1, 18)).StringFixed(2),
+	})
+
+	if balanceD.Cmp(thresholdD) <= 0 {
+		logger.Warn("The balance for the operater is too low")
+	} else {
+		logger.Debug("The operator balance checked once")
+	}
+
+	return nil
 }

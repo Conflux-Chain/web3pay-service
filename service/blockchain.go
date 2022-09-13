@@ -69,6 +69,7 @@ func NewBlockchainService(
 	go bs.delayQueue.Poll()
 	go bs.Deposit()
 	go bs.delayExecResourceConfig()
+	go bs.checkOperatorBalance()
 
 	return bs, nil
 }

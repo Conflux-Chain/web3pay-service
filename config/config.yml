@@ -52,6 +52,12 @@ blockchain:
   creatorAddr:
   # Operator private key used to sign transaction for billing charge (mandatory).
   operatorPrivateKey:
+  # delay config execution interval
+  # delayConfigExecInterval: 5m
+  # operator balance checking interval
+  # operatorBalanceCheckInterval: 30m
+  # operator balance checking threshold (CFX)
+  # operatorBalanceCheckThreshold: 15
 
 # Worker configurations
 worker:
