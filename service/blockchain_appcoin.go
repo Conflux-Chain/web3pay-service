@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -18,7 +19,6 @@ const (
 
 	// APP resource config delay exec interval
 	delayConfigExecIntervalNormal = time.Minute * 5
-	delayConfigExecIntervalPush   = time.Second * 15
 )
 
 type resourceConfig = contract.AppConfigConfigEntry
@@ -132,6 +132,9 @@ func (svc *BlockchainService) ValidateAppCoinOwner(contractAddr, owner common.Ad
 func (bs *BlockchainService) delayExecResourceConfig() {
 	bs.execResourceConfigOnce()
 
+	viper.SetDefault("blockchain.delayConfigExecInterval", delayConfigExecIntervalNormal)
+	delayConfigExecIntervalNormal := viper.GetDuration("blockchain.delayConfigExecInterval")
+
 	ticker := time.NewTicker(delayConfigExecIntervalNormal)
 	defer ticker.Stop()
 
@@ -139,7 +142,7 @@ func (bs *BlockchainService) delayExecResourceConfig() {
 		err := bs.execResourceConfigOnce()
 		if err != nil {
 			logrus.WithError(err).Error("Failed to run delay exec resource config once")
-			ticker.Reset(delayConfigExecIntervalPush)
+			ticker.Reset(delayConfigExecIntervalNormal / 2)
 		} else {
 			ticker.Reset(delayConfigExecIntervalNormal)
 		}
@@ -154,18 +157,20 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 			logrus.WithField("appCoin", coin).
 				WithError(err).
 				Info("Failed to executing APP coin resource config")
+
 			return errors.WithMessage(err, "failed to get pending seconds config")
 		}
 
 		// iterate all tracking APP coins
-		return bs.provider.IterateAppCoinResources(nil, coin, func(confEntry contract.AppConfigConfigEntry) error {
+		return bs.provider.IterateAppCoinResources(nil, coin, func(confEntry contract.AppConfigConfigEntry) (bool, error) {
 			// checking pending operation code
 			if confEntry.PendingOP == contract.OpCodeResourceConfigNoPending {
 				logrus.WithFields(logrus.Fields{
 					"appCoin":     coin,
 					"configEntry": confEntry,
 				}).Debug("Skipping execute APP coin resource config due to no pending operation")
-				return nil
+
+				return false, nil
 			}
 
 			expireTimestamp := big.NewInt(0).Add(confEntry.SubmitSeconds, pendingSeconds)
@@ -178,7 +183,8 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 					"pendingSeconds":  pendingSeconds.Int64(),
 					"nowTimeStamp":    nowTimeStamp,
 				}).Debug("Skipping execute APP coin resource config due to time not up yet")
-				return nil
+
+				return false, nil
 			}
 
 			// contract call `flushPendingResourceConfig`
@@ -187,7 +193,8 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 				logrus.WithField("appCoin", coin).
 					WithError(err).
 					Info("Failed to flush APP coin pending resource configurations")
-				return errors.WithMessage(err, "failed to flush pending resource config")
+
+				return false, errors.WithMessage(err, "failed to flush pending resource config")
 			}
 
 			logrus.WithFields(logrus.Fields{
@@ -196,7 +203,8 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 				"txnHash":        txn.Hash,
 				"pendingSeconds": pendingSeconds.Int64(),
 			}).Debug("APP coin resource config executed")
-			return nil
+
+			return true, nil
 		})
 	})
 }

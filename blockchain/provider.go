@@ -329,9 +329,9 @@ func (p *Provider) GetAppCoinResources(
 	appResources := make(map[string]contract.AppConfigConfigEntry)
 
 	// iterate all resources under APP coin
-	err := p.IterateAppCoinResources(callOpts, coin, func(confEntry contract.AppConfigConfigEntry) error {
+	err := p.IterateAppCoinResources(callOpts, coin, func(confEntry contract.AppConfigConfigEntry) (bool, error) {
 		appResources[confEntry.ResourceId] = confEntry
-		return nil
+		return false, nil
 	})
 
 	if err != nil {
@@ -407,7 +407,7 @@ func (p *Provider) iterateControllerAppCoins(
 
 // IterateAppCoinResources iterates all resource under specified APP coin.
 func (p *Provider) IterateAppCoinResources(
-	callOpts *bind.CallOpts, coin common.Address, iterator func(confEntry contract.AppConfigConfigEntry) error,
+	callOpts *bind.CallOpts, coin common.Address, iterator func(confEntry contract.AppConfigConfigEntry) (bool, error),
 ) error {
 	appCoinContract, err := p.GetAppCoinContract(coin)
 	if err != nil {
@@ -427,11 +427,16 @@ func (p *Provider) IterateAppCoinResources(
 		}
 
 		for i := range configEntries {
-			if err := iterator(configEntries[i]); err != nil {
+			interrupt, err := iterator(configEntries[i])
+			if err != nil {
 				logrus.WithField("coin", coin).
 					WithError(err).
 					Info("Failed to iterate APP coin resource")
 				return errors.WithMessage(err, "failed to iterate resource")
+			}
+
+			if interrupt {
+				return nil
 			}
 		}
 
