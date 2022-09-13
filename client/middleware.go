@@ -168,7 +168,7 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 				resourceId = option.ResourceIdMapper(msg)
 			}
 
-			receipt, err := option.Client.Bill(ctx, resourceId, false, customerKey)
+			receipt, err := option.Client.Bill(context.Background(), resourceId, false, customerKey)
 			if err != nil { // billing failed?
 				err = errors.WithMessage(err, "web3pay billing failed")
 				return wrapup(ctx, msg, NewBillingStatusWithError(customerKey, err))
@@ -256,7 +256,7 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 				resourceId = option.ResourceIdMapper(r)
 			}
 
-			receipt, err := option.Client.Bill(ctx, resourceId, false, customerKey)
+			receipt, err := option.Client.Bill(context.Background(), resourceId, false, customerKey)
 			if err != nil { // billing failed?
 				err = errors.WithMessage(err, "web3pay billing failed")
 				wrapup(w, r, NewBillingStatusWithError(customerKey, err))
