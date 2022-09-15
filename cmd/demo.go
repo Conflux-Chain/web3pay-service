@@ -13,7 +13,7 @@ import (
 
 type demoConfig struct {
 	client.ClientConfig `mapstructure:",squash"`
-	CustomerKey         string
+	ApiKey              string
 	ServerPort          int
 	RpcStyle            string
 }
@@ -62,12 +62,12 @@ func init() {
 	)
 	viper.BindPFlag("demo.billingKey", flags.Lookup("billing-key"))
 
-	// customer key
+	// API key
 	flags.StringVarP(
-		&demoConf.CustomerKey, "customer-key", "c", "",
-		"customer key (use 'ecrecover' command to generate one)",
+		&demoConf.ApiKey, "api-key", "a", "",
+		"API key (use 'genkey' command to generate one)",
 	)
-	viper.BindPFlag("demo.customerKey", flags.Lookup("customer-key"))
+	viper.BindPFlag("demo.apiKey", flags.Lookup("api-key"))
 
 	// demo provider server port
 	flags.IntVarP(
@@ -131,8 +131,8 @@ func startConsumer(cmd *cobra.Command, args []string) {
 	// load config from env vars or flags
 	viperutil.MustUnmarshalKey("demo", &demoConf)
 
-	if len(demoConf.CustomerKey) == 0 {
-		logrus.Info("Customer key must be provided")
+	if len(demoConf.ApiKey) == 0 {
+		logrus.Info("Api key must be provided")
 		return
 	}
 
@@ -144,7 +144,7 @@ func startConsumer(cmd *cobra.Command, args []string) {
 }
 
 func startRestfulConsumer() {
-	resp, err := demo.RunRestfulServiceConsumer(demoConf.CustomerKey, demoConf.ServerPort)
+	resp, err := demo.RunRestfulServiceConsumer(demoConf.ApiKey, demoConf.ServerPort)
 	if err != nil {
 		logrus.WithField("demoConfig", demoConf).
 			WithError(err).
@@ -156,7 +156,7 @@ func startRestfulConsumer() {
 }
 
 func startJsonRpcConsuemr() {
-	resp, err := demo.RunJsonRpcServiceConsumer(demoConf.CustomerKey, demoConf.ServerPort)
+	resp, err := demo.RunJsonRpcServiceConsumer(demoConf.ApiKey, demoConf.ServerPort)
 	if err != nil {
 		logrus.WithField("demoConfig", demoConf).
 			WithError(err).

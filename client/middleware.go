@@ -17,36 +17,36 @@ type CtxKey string
 const (
 	// context key
 	CtxKeyBillingStatus = CtxKey("Web3Pay-Billing-Status")
-	CtxCustomerKey      = CtxKey("Web3Pay-Customer-Key")
+	CtxApiKey           = CtxKey("Web3Pay-Api-Key")
 
-	// default customer key LRU cache size
-	customerKeyCacheSize = 2000
+	// default API key LRU cache size
+	apiKeyCacheSize = 2000
 )
 
 var (
 	// errors
-	errCustomerKeyNotProvided = model.ErrAuth.WithData("customer key not provided")
+	errApiKeyNotProvided = model.ErrAuth.WithData("API key not provided")
 
-	// cache VIP customer keys
-	vipCustomerKeyCache, _ = lru.New(customerKeyCacheSize)
+	// cache VIP API keys
+	vipApiKeyCache, _ = lru.New(apiKeyCacheSize)
 )
 
 // BillingStatus billing result
 type BillingStatus struct {
-	Receipt     *service.BillingReceipt // billing receipt
-	Error       error                   // billing error
-	skipError   bool                    // skip any error pretending to be successful
-	customerKey string                  // billed customer key
+	Receipt   *service.BillingReceipt // billing receipt
+	Error     error                   // billing error
+	skipError bool                    // skip any error pretending to be successful
+	apiKey    string                  // billed API key
 }
 
 // create billing status from error
-func NewBillingStatusWithError(customerKey string, err error) *BillingStatus {
-	return &BillingStatus{customerKey: customerKey, Error: err}
+func NewBillingStatusWithError(apiKey string, err error) *BillingStatus {
+	return &BillingStatus{apiKey: apiKey, Error: err}
 }
 
 // create billing status from receipt
-func NewBillingStatusWithReceipt(customerKey string, receipt *service.BillingReceipt) *BillingStatus {
-	return &BillingStatus{customerKey: customerKey, Receipt: receipt}
+func NewBillingStatusWithReceipt(apiKey string, receipt *service.BillingReceipt) *BillingStatus {
+	return &BillingStatus{apiKey: apiKey, Receipt: receipt}
 }
 
 // Success checks if billing successful
@@ -90,8 +90,8 @@ type authKeyProvider func(ctx context.Context) (string, bool)
 type BillingMiddlewareOption struct {
 	// we3pay client to request billing gateway (mandatory)
 	Client *Client
-	// provider to get customer key from context, use `GetCustomerKeyFromContext` if not provided
-	CustomerKeyProvider authKeyProvider
+	// provider to get API key from context, use `GetApiKeyFromContext` if not provided
+	ApiKeyProvider authKeyProvider
 	// whether to propagate internal server errors of the requested billing gateway
 	// to the already billed users, default as false which will pretend nothing wrong
 	// happened except some error logs will be printed. This is usually used to mitigate
@@ -104,8 +104,8 @@ func NewBillingMiddlewareOptionWithClient(client *Client) *BillingMiddlewareOpti
 }
 
 func (option *BillingMiddlewareOption) InitDefault() *BillingMiddlewareOption {
-	if option.CustomerKeyProvider == nil {
-		option.CustomerKeyProvider = GetCustomerKeyFromContext
+	if option.ApiKeyProvider == nil {
+		option.ApiKeyProvider = GetApiKeyFromContext
 	}
 	return option
 }
@@ -136,14 +136,14 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 
 			if bs.Error == nil { // billing successfully?
 				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
-				vipCustomerKeyCache.Add(bs.customerKey, struct{}{})
+				vipApiKeyCache.Add(bs.apiKey, struct{}{})
 				return next(ctx, msg)
 			}
 
 			// handle gateway internal server error
 			if err, ok := bs.InternalServerError(); ok {
 				if !option.PropagateInternalServerError {
-					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
+					_, bs.skipError = vipApiKeyCache.Get(bs.apiKey)
 				}
 
 				logrus.WithFields(logrus.Fields{
@@ -156,9 +156,9 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 		}
 
 		return func(ctx context.Context, msg *rpc.JsonRpcMessage) *rpc.JsonRpcMessage {
-			customerKey, ok := option.CustomerKeyProvider(ctx)
-			if !ok || len(customerKey) == 0 { // customer key provided?
-				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
+			apiKey, ok := option.ApiKeyProvider(ctx)
+			if !ok || len(apiKey) == 0 { // api key provided?
+				bs := NewBillingStatusWithError(apiKey, errApiKeyNotProvided)
 				return wrapup(ctx, msg, bs)
 			}
 
@@ -168,13 +168,13 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 				resourceId = option.ResourceIdMapper(msg)
 			}
 
-			receipt, err := option.Client.Bill(context.Background(), resourceId, false, customerKey)
+			receipt, err := option.Client.Bill(context.Background(), resourceId, false, apiKey)
 			if err != nil { // billing failed?
 				err = errors.WithMessage(err, "web3pay billing failed")
-				return wrapup(ctx, msg, NewBillingStatusWithError(customerKey, err))
+				return wrapup(ctx, msg, NewBillingStatusWithError(apiKey, err))
 			}
 
-			return wrapup(ctx, msg, NewBillingStatusWithReceipt(customerKey, receipt))
+			return wrapup(ctx, msg, NewBillingStatusWithReceipt(apiKey, receipt))
 		}
 	}
 }
@@ -220,7 +220,7 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 
 			if bs.Error == nil { // billing successfull
 				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
-				vipCustomerKeyCache.Add(bs.customerKey, struct{}{})
+				vipApiKeyCache.Add(bs.apiKey, struct{}{})
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -228,7 +228,7 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 			// handle gateway internal server error
 			if err, ok := bs.InternalServerError(); ok {
 				if !option.PropagateInternalServerError {
-					_, bs.skipError = vipCustomerKeyCache.Get(bs.customerKey)
+					_, bs.skipError = vipApiKeyCache.Get(bs.apiKey)
 				}
 
 				logrus.WithFields(logrus.Fields{
@@ -243,9 +243,9 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			customerKey, ok := option.CustomerKeyProvider(ctx)
-			if !ok || len(customerKey) == 0 { // customer key provided?
-				bs := NewBillingStatusWithError(customerKey, errCustomerKeyNotProvided)
+			apiKey, ok := option.ApiKeyProvider(ctx)
+			if !ok || len(apiKey) == 0 { // API key provided?
+				bs := NewBillingStatusWithError(apiKey, errApiKeyNotProvided)
 				wrapup(w, r, bs)
 				return
 			}
@@ -256,14 +256,14 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 				resourceId = option.ResourceIdMapper(r)
 			}
 
-			receipt, err := option.Client.Bill(context.Background(), resourceId, false, customerKey)
+			receipt, err := option.Client.Bill(context.Background(), resourceId, false, apiKey)
 			if err != nil { // billing failed?
 				err = errors.WithMessage(err, "web3pay billing failed")
-				wrapup(w, r, NewBillingStatusWithError(customerKey, err))
+				wrapup(w, r, NewBillingStatusWithError(apiKey, err))
 				return
 			}
 
-			wrapup(w, r, NewBillingStatusWithReceipt(customerKey, receipt))
+			wrapup(w, r, NewBillingStatusWithReceipt(apiKey, receipt))
 		})
 	}
 }
@@ -288,15 +288,15 @@ func HttpInjectContextMiddleware(injectors ...httpContextInjector) HttpMiddlewar
 
 // handy utility functions
 
-// CustomerKeyContextInjector returns context injector by extracting customer key from request
-func CustomerKeyContextInjector(ckExtractor func(r *http.Request) string) httpContextInjector {
+// ApiKeyContextInjector returns context injector by extracting API key from request
+func ApiKeyContextInjector(kextractor func(r *http.Request) string) httpContextInjector {
 	return func(ctx context.Context, r *http.Request) context.Context {
-		return context.WithValue(ctx, CtxCustomerKey, ckExtractor(r))
+		return context.WithValue(ctx, CtxApiKey, kextractor(r))
 	}
 }
 
-// GetCustomerKeyFromContext gets customer key from context
-func GetCustomerKeyFromContext(ctx context.Context) (string, bool) {
-	val, ok := ctx.Value(CtxCustomerKey).(string)
+// GetApiKeyFromContext gets API key from context
+func GetApiKeyFromContext(ctx context.Context) (string, bool) {
+	val, ok := ctx.Value(CtxApiKey).(string)
 	return val, ok
 }

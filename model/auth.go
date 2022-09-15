@@ -1,11 +1,16 @@
 package model
 
 const (
-	AuthHeaderBillingKey  = "Billing-Key"
-	AuthHeaderCustomerKey = "Customer-Key"
+	AuthHeaderBillingKey = "Billing-Key"
+	AuthHeaderApiKey     = "Api-Key"
 )
 
-type AuthKeyObject struct {
+type BillingAuthKey struct {
 	Msg string `json:"msg"` // signed message
 	Sig string `json:"sig"` // signature
+}
+
+type ApiAuthKey struct {
+	Sig       string // signature
+	Timestamp int64  // timestamp
 }

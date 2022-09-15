@@ -1,17 +1,15 @@
 package cmd
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
-	"github.com/Conflux-Chain/web3pay-service/client"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 type keygenConfig struct {
-	KeyType         string // "billing" or "customer" auth key
+	KeyType         string // "billing" or "api" auth key
 	AppCoinContract string // APP coin contract address
 	PrivateKey      string // private key
 }
@@ -20,7 +18,7 @@ var (
 	kgconfig  keygenConfig
 	genKeyCmd = &cobra.Command{
 		Use:   "genkey",
-		Short: "Generate billing or customer auth key",
+		Short: "Generate billing or API auth key",
 		Run:   genAuthKey,
 	}
 )
@@ -30,7 +28,7 @@ func init() {
 
 	// auth key type
 	genKeyCmd.Flags().StringVarP(
-		&kgconfig.KeyType, "type", "t", "billing", "auth key type",
+		&kgconfig.KeyType, "type", "t", "billing", "(billing or api) auth key",
 	)
 
 	// APP coin contract
@@ -47,17 +45,17 @@ func init() {
 }
 
 func genAuthKey(cmd *cobra.Command, args []string) {
-	msg := kgconfig.AppCoinContract
-	if !strings.EqualFold(kgconfig.KeyType, "billing") {
-		msg = fmt.Sprintf("%s_%v", msg, time.Now().Unix())
-		kgconfig.KeyType = "customer"
+	keyBuilder := util.BuildBillingKey
+	if strings.EqualFold(kgconfig.KeyType, "api") { // API key
+		keyBuilder = util.BuildApiKey
+	} else {
+		kgconfig.KeyType = "billing"
 	}
 
-	key, err := client.BuildAuthKey(msg, kgconfig.PrivateKey)
+	authKey, err := keyBuilder(kgconfig.AppCoinContract, kgconfig.PrivateKey)
 	logrus.WithFields(logrus.Fields{
 		"APPCoinContract": kgconfig.AppCoinContract,
 		"AuthKeyType":     kgconfig.KeyType,
-		"AuthKey":         key,
-		"Message":         msg,
+		"AuthKey":         authKey,
 	}).WithError(err).Info("Auth key generated")
 }

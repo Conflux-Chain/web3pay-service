@@ -47,8 +47,8 @@ func RunRestfulServiceProvider(config web3pay.ClientConfig, port int) error {
 
 	// hook http server middleware handler
 	mwOption := web3pay.NewHttpBillingMiddlewareOptionWithClient(client)
-	ckContextInjector := web3pay.CustomerKeyContextInjector(GetCustomerKey)
-	ctxInjectMw := web3pay.HttpInjectContextMiddleware(ckContextInjector)
+	kContextInjector := web3pay.ApiKeyContextInjector(GetApiKey)
+	ctxInjectMw := web3pay.HttpInjectContextMiddleware(kContextInjector)
 	handler := ctxInjectMw(web3pay.HttpBillingMiddleware(mwOption)(mux))
 
 	// serve RESTful RPC service
@@ -61,8 +61,8 @@ func RunRestfulServiceProvider(config web3pay.ClientConfig, port int) error {
 }
 
 // RunRestfulServiceConsumer runs a RESTful consumer once to test the demo billed service provider.
-func RunRestfulServiceConsumer(customerKey string, srvPort int) (interface{}, error) {
-	httpSrvUrl := fmt.Sprintf("http://127.0.0.1:%d/%s", srvPort, url.QueryEscape(customerKey))
+func RunRestfulServiceConsumer(apiKey string, srvPort int) (interface{}, error) {
+	httpSrvUrl := fmt.Sprintf("http://127.0.0.1:%d/%s", srvPort, url.QueryEscape(apiKey))
 
 	// call billed service provider
 	resp, err := resty.New().SetTimeout(200 * time.Millisecond).R().Post(httpSrvUrl)
@@ -73,17 +73,21 @@ func RunRestfulServiceConsumer(customerKey string, srvPort int) (interface{}, er
 	return resp, nil
 }
 
-func GetCustomerKey(r *http.Request) string {
+func GetApiKey(r *http.Request) string {
 	if r == nil || r.URL == nil {
 		return ""
 	}
 
-	// customer key path pattern:
-	// http://example.com/${customerKey}...
-	key := strings.TrimLeft(r.URL.Path, "/")
+	// API key path pattern:
+	// http://example.com/${apiKey}...
+	key := strings.TrimLeft(r.URL.EscapedPath(), "/")
 	if idx := strings.Index(key, "/"); idx > 0 {
 		key = key[:idx]
 	}
 
-	return key
+	if key, err := url.QueryUnescape(key); err == nil {
+		return key
+	}
+
+	return ""
 }
