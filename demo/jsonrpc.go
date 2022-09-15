@@ -49,8 +49,8 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 		return errors.WithMessage(err, "failed to register demo API service")
 	}
 
-	ckContextInjector := web3pay.CustomerKeyContextInjector(GetCustomerKey)
-	ctxInjectMw := web3pay.HttpInjectContextMiddleware(ckContextInjector)
+	kContextInjector := web3pay.ApiKeyContextInjector(GetApiKey)
+	ctxInjectMw := web3pay.HttpInjectContextMiddleware(kContextInjector)
 	server := http.Server{
 		Handler: ctxInjectMw(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"})),
 	}
@@ -71,8 +71,8 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 }
 
 // RunJsonRpcServiceConsumer runs a JSON-RPC consumer once to test the demo billed service provider.
-func RunJsonRpcServiceConsumer(customerKey string, srvPort int) (interface{}, error) {
-	rpcSrvUrl := fmt.Sprintf("http://127.0.0.1:%d/%s", srvPort, url.QueryEscape(customerKey))
+func RunJsonRpcServiceConsumer(apiKey string, srvPort int) (interface{}, error) {
+	rpcSrvUrl := fmt.Sprintf("http://127.0.0.1:%d/%s", srvPort, url.QueryEscape(apiKey))
 	rpcClient := jsonrpc.NewClientWithOpts(
 		rpcSrvUrl, &jsonrpc.RPCClientOpts{Timeout: time.Second},
 	)

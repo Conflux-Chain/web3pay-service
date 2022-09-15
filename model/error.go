@@ -1,6 +1,9 @@
 package model
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 var (
 	// general error
@@ -30,6 +33,10 @@ func (be *BusinessError) WithData(data interface{}) *BusinessError {
 }
 
 func (err *BusinessError) Error() string {
+	if detail, ok := err.Data.(string); ok {
+		return fmt.Sprintf("%v: %v", err.Message, detail)
+	}
+
 	return err.Message
 }
 

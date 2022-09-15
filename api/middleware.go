@@ -17,7 +17,9 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -102,13 +104,18 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func parseAuthKey(r *http.Request, headerKey string) (*model.AuthKeyObject, error) {
-	keyJson, err := base64.StdEncoding.DecodeString(r.Header.Get(headerKey))
+func parseBillingKey(r *http.Request) (*model.BillingAuthKey, error) {
+	billingKeyStr := r.Header.Get(model.AuthHeaderBillingKey)
+	if len(billingKeyStr) < 260 {
+		return nil, errors.New("key bytes too short")
+	}
+
+	keyJson, err := base64.StdEncoding.DecodeString(billingKeyStr)
 	if err != nil {
 		return nil, errors.WithMessage(err, "base64 decode error")
 	}
 
-	var key model.AuthKeyObject
+	var key model.BillingAuthKey
 	if err := json.Unmarshal(keyJson, &key); err != nil {
 		return nil, errors.WithMessage(err, "json decode error")
 	}
@@ -124,6 +131,24 @@ func parseAuthKey(r *http.Request, headerKey string) (*model.AuthKeyObject, erro
 	return &key, err
 }
 
+func parseApiKey(r *http.Request) (*model.ApiAuthKey, error) {
+	apiKeyStr := r.Header.Get(model.AuthHeaderApiKey)
+	if len(apiKeyStr) < 88 {
+		return nil, errors.New("key bytes too short")
+	}
+
+	sig, err := base64.StdEncoding.DecodeString(apiKeyStr)
+	if err != nil {
+		return nil, errors.WithMessage(err, "base64 decode error")
+	}
+
+	if len(sig) < 65 {
+		return nil, errors.WithMessage(err, "signature bytes too short")
+	}
+
+	return &model.ApiAuthKey{Sig: hexutil.Encode(sig)}, nil
+}
+
 type authErrorHandler func(ctx context.Context, w http.ResponseWriter, err error)
 
 func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler authErrorHandler) mux.MiddlewareFunc {
@@ -131,26 +156,19 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 
-			billingKey, err := parseAuthKey(r, model.AuthHeaderBillingKey)
+			billingKey, err := parseBillingKey(r)
 			if err != nil {
 				err = errors.WithMessage(err, "billing key parsed error")
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
-			customerKey, err := parseAuthKey(r, model.AuthHeaderCustomerKey)
-			if err != nil {
-				err = errors.WithMessage(err, "customer key parse error")
-				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
-				return
-			}
-
-			// authenticate contract owner
 			if !common.IsHexAddress(billingKey.Msg) { // `msg` part must be a valid hex address
 				handler(ctx, w, model.ErrAuth.WithData("invalid contract address"))
 				return
 			}
 
+			// authenticate contract owner
 			ownerAddr, err := chainSvc.RecoverAddressBySignature(billingKey.Msg, billingKey.Sig)
 			if err != nil {
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
@@ -163,8 +181,22 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler 
 				return
 			}
 
+			apiKey, err := parseApiKey(r)
+			if err != nil {
+				err = errors.WithMessage(err, "API key parse error")
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
+				return
+			}
+
+			apiAuthMsg, err := util.GetApiAuthMessage(billingKey.Msg)
+			if err != nil {
+				err = errors.WithMessage(err, "API auth message error")
+				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
+				return
+			}
+
 			// authenticate customer
-			customerAddr, err := chainSvc.RecoverAddressBySignature(customerKey.Msg, customerKey.Sig)
+			customerAddr, err := chainSvc.RecoverAddressBySignature(apiAuthMsg, apiKey.Sig)
 			if err != nil {
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return

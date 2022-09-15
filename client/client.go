@@ -2,14 +2,11 @@ package client
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
-	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/mcuadros/go-defaults"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -60,10 +57,10 @@ func NewClient(conf ClientConfig) (*Client, error) {
 }
 
 func (c *Client) Bill(
-	ctx context.Context, resourceId string, dryRun bool, customerKey string) (*service.BillingReceipt, error) {
+	ctx context.Context, resourceId string, dryRun bool, apikey string) (*service.BillingReceipt, error) {
 
 	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
-		model.AuthHeaderCustomerKey: customerKey,
+		model.AuthHeaderApiKey: apikey,
 	})
 
 	args := &service.BillingRequest{
@@ -80,10 +77,10 @@ func (c *Client) Bill(
 }
 
 func (c *Client) BillBatch(
-	ctx context.Context, resourceUses map[string]int64, dryRun bool, customerKey string) (*service.BillingBatchReceipt, error) {
+	ctx context.Context, resourceUses map[string]int64, dryRun bool, apikey string) (*service.BillingBatchReceipt, error) {
 
 	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
-		model.AuthHeaderCustomerKey: customerKey,
+		model.AuthHeaderApiKey: apikey,
 	})
 
 	args := &service.BillingBatchRequest{
@@ -122,38 +119,4 @@ func (c *Client) doCall(ctx context.Context, out interface{}, method string, arg
 	}
 
 	return reply.GetObject(out)
-}
-
-// BuildBillingKey utility function to help build billing key with specified
-// APP coin contract address and its owner private key text.
-func BuildBillingKey(appCoinContract string, ownerPrivateKeyText string) (string, error) {
-	return BuildAuthKey(appCoinContract, ownerPrivateKeyText)
-}
-
-// BuildAuthKey utility function to help build auth key with specific message
-// signatured with some private key text.
-func BuildAuthKey(message string, privateKeyText string) (string, error) {
-	// load private key
-	privateKey, err := util.EcdsaPrivateKeyFromString(privateKeyText)
-	if err != nil {
-		return "", err
-	}
-
-	// create signature
-	sig, _, err := util.PersonalSign(message, privateKey)
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to create signature")
-	}
-
-	// json marshal auth key
-	authKeyObj, err := json.Marshal(model.AuthKeyObject{
-		Msg: message, Sig: sig,
-	})
-	if err != nil {
-		return "", errors.WithMessage(err, "failed to json marshal auth key object")
-	}
-
-	// base64 encoding auth key json
-	billKey := base64.StdEncoding.EncodeToString(authKeyObj)
-	return billKey, nil
 }
