@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 )
@@ -75,9 +76,9 @@ func BuildApiKey(appCoinContract string, consumerPrivateKeyText string) (string,
 		return "", errors.WithMessage(err, "failed to create signature")
 	}
 
-	// base64 encoding signature
+	// base58 encoding signature
 	sig, _ := hexutil.Decode(sigstr)
-	apiKey := base64.StdEncoding.EncodeToString(sig)
+	apiKey := base58.CheckEncode(sig, 0)
 
 	return apiKey, nil
 }
