@@ -134,17 +134,13 @@ func parseBillingKey(r *http.Request) (*model.BillingAuthKey, error) {
 
 func parseApiKey(r *http.Request) (*model.ApiAuthKey, error) {
 	apiKeyStr := r.Header.Get(model.AuthHeaderApiKey)
-	if len(apiKeyStr) < 88 {
+	if len(apiKeyStr) < 89 {
 		return nil, errors.New("key bytes too short")
 	}
 
-	sig, _, err := base58.CheckDecode(apiKeyStr)
-	if err != nil {
-		return nil, errors.WithMessage(err, "base64 decode error")
-	}
-
+	sig := base58.Decode(apiKeyStr)
 	if len(sig) < 65 {
-		return nil, errors.WithMessage(err, "signature bytes too short")
+		return nil, errors.New("signature bytes too short")
 	}
 
 	return &model.ApiAuthKey{Sig: hexutil.Encode(sig)}, nil

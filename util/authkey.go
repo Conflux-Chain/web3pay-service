@@ -78,7 +78,7 @@ func BuildApiKey(appCoinContract string, consumerPrivateKeyText string) (string,
 
 	// base58 encoding signature
 	sig, _ := hexutil.Decode(sigstr)
-	apiKey := base58.CheckEncode(sig, 0)
+	apiKey := base58.Encode(sig)
 
 	return apiKey, nil
 }
