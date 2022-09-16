@@ -85,7 +85,7 @@ func GetApiKey(r *http.Request) string {
 		key = key[:idx]
 	}
 
-	if key, err := url.QueryUnescape(key); err == nil {
+	if key, err := url.PathUnescape(key); err == nil {
 		return key
 	}
 

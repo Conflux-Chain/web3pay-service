@@ -33,11 +33,7 @@ func (be *BusinessError) WithData(data interface{}) *BusinessError {
 }
 
 func (err *BusinessError) Error() string {
-	if detail, ok := err.Data.(string); ok {
-		return fmt.Sprintf("%v: %v", err.Message, detail)
-	}
-
-	return err.Message
+	return fmt.Sprintf("%s: %v", err.Message, err.Data)
 }
 
 func (err *BusinessError) IsNil() bool {

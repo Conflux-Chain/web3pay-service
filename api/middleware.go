@@ -18,6 +18,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/Conflux-Chain/web3pay-service/util"
+	"github.com/btcsuite/btcutil/base58"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/gorilla/mux"
@@ -137,7 +138,7 @@ func parseApiKey(r *http.Request) (*model.ApiAuthKey, error) {
 		return nil, errors.New("key bytes too short")
 	}
 
-	sig, err := base64.StdEncoding.DecodeString(apiKeyStr)
+	sig, _, err := base58.CheckDecode(apiKeyStr)
 	if err != nil {
 		return nil, errors.WithMessage(err, "base64 decode error")
 	}
