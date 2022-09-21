@@ -81,7 +81,7 @@ func (svc *BlockchainService) GetAppCoinResourceWithId(
 	}
 
 	resrc, ok := appCoin.Resources[resourceId]
-	if ok {
+	if ok && resrc.PendingOP != contract.OpCodeResourceConfigAdd {
 		return &resrc, nil
 	}
 
