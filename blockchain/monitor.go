@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"container/list"
+	"context"
 	"math/big"
 	"time"
 
@@ -72,7 +73,7 @@ func MustNewMonitor(config *Config, provider *Provider, eventObserver ContractEv
 	}
 }
 
-func (m *Monitor) Sync() {
+func (m *Monitor) Sync(ctx context.Context) {
 	logrus.WithField("syncFromBlock", m.SyncFromBlockNumber).
 		Debug("Monitor starting to sync blockchain data")
 
@@ -88,6 +89,9 @@ func (m *Monitor) Sync() {
 
 	for {
 		select {
+		case <-ctx.Done():
+			logrus.Info("Monitor sync completed")
+			return
 		case <-ticker.C:
 			start := time.Now()
 			complete, err := m.syncOnce(confirmTasks)

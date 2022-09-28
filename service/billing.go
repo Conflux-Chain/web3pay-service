@@ -165,6 +165,14 @@ func (bs *BillingService) GetAndDelStatements(billID uint64) map[uint32]int64 {
 	return statements
 }
 
+func (bs *BillingService) GetStatements(billID uint64) map[uint32]int64 {
+	return bs.billingStatements[billID]
+}
+
+func (bs *BillingService) DelStatements(billID uint64) {
+	delete(bs.billingStatements, billID)
+}
+
 func (bs *BillingService) collectBillStatements(billID uint64, resourceStatements map[uint32]int64) {
 	if _, ok := bs.billingStatements[billID]; !ok {
 		bs.billingStatements[billID] = resourceStatements

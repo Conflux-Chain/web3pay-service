@@ -34,6 +34,7 @@ require (
 require (
 	github.com/btcsuite/btcutil v1.0.3-0.20201208143702-a53e38424cce
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/schollz/jsonstore v1.1.0
 	golang.org/x/sys v0.0.0-20220405052023-b1e9470b6e64 // indirect
 	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
