@@ -72,7 +72,7 @@ worker:
   # Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
   # maxPendingAwaitDuration: 30s
   # Whether to persist billing tasks to local JSON files on worker shut down.
-  # persistOnShutdown: false
+  # persistOnShutdown: true
   # The persistence path for local JSON of billing tasks, valid only if `persistOnShutdown`
   # switch is on.
   # persistencePath: ./wdata
