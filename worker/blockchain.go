@@ -1,8 +1,11 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"math/big"
+	"os"
+	"sync"
 	"time"
 
 	"github.com/Conflux-Chain/go-conflux-util/viper"
@@ -17,7 +20,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/pkg/errors"
+	"github.com/schollz/jsonstore"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 const (
@@ -31,6 +36,8 @@ type settlementConfig struct {
 	MaxSettlementRetries    uint          `default:"5"`
 	MinConfirmedBlocks      uint64        `default:"30"`
 	MaxPendingAwaitDuration time.Duration `default:"30s"`
+	PersistOnShutdown       bool          `default:"false"`
+	PersistencePath         string        `default:"./wdata"`
 }
 
 type BillTask struct {
@@ -80,18 +87,49 @@ func MustNewBlockchainWorkerFromViper(
 	}
 }
 
-func (worker *BlockchainWorker) Run() {
-	go worker.poll()
-	go worker.confirm()
+func (worker *BlockchainWorker) Run(ctx context.Context) {
+	var wg sync.WaitGroup
 
-	worker.settle()
+	// start polling
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		worker.poll(ctx)
+	}()
+
+	// start confirming
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		worker.confirm(ctx)
+	}()
+
+	// start settling
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		worker.settle(ctx)
+	}()
+
+	wg.Wait()
+
+	// persist billing status after shut down
+	if worker.PersistOnShutdown {
+		worker.persist()
+	}
 }
 
-func (worker *BlockchainWorker) confirm() {
+func (worker *BlockchainWorker) confirm(ctx context.Context) {
 	// TODO: task confirmations are order independent, multiple consumers can be utilized
 	// to increase workload capacity.
-	for billTasks := range worker.billConfirmQueue {
-		worker.confirmBillTasks(billTasks)
+	for {
+		select {
+		case billTasks := <-worker.billConfirmQueue:
+			worker.confirmBillTasks(billTasks)
+		case <-ctx.Done():
+			logrus.Info("Blockchain worker confirming completed")
+			return
+		}
 	}
 }
 
@@ -226,6 +264,10 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 	util.KLock(service.KeyBillingLocker)
 	defer util.KUnlock(service.KeyBillingLocker)
 
+	for _, billId := range delBillIds {
+		worker.billSvc.DelStatements(billId)
+	}
+
 	if err := worker.sqliteStore.Delete(&model.Bill{}, delBillIds).Error; err != nil {
 		logrus.WithField("delBillIds", delBillIds).
 			WithError(err).
@@ -233,51 +275,61 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 	}
 }
 
-func (worker *BlockchainWorker) settle() {
-	for billTasks := range worker.billSettlementQueue {
-		var todoTasks, deadTasks []*BillTask
-
-		// filter dead tasks and todo tasks
-		for i := range billTasks {
-			if billTasks[i].TryTimes > worker.MaxSettlementRetries {
-				logrus.WithFields(logrus.Fields{
-					"bill":       *billTasks[i].Bill,
-					"statements": billTasks[i].Statements,
-					"tryTimes":   billTasks[i].TryTimes,
-				}).Warn("Blockchain worker dumped (dead) bill tasks after too many retries")
-				deadTasks = append(deadTasks, billTasks[i])
-				continue
-			}
-
-			todoTasks = append(todoTasks, billTasks[i])
-		}
-
-		if len(deadTasks) > 0 {
-			// update bill failed status
-			worker.updateBillTaskStatus(deadTasks, model.BillStatusFailed)
-		}
-
-		if len(todoTasks) == 0 {
+func (worker *BlockchainWorker) settle(ctx context.Context) {
+	for {
+		select {
+		case billTasks := <-worker.billSettlementQueue:
+			worker.settleBillTasks(billTasks)
+		case <-ctx.Done():
+			logrus.Info("Blockchain worker settling completed")
 			return
-		}
-
-		successTasks, failureTasks := worker.settleBillTasks(todoTasks)
-
-		if len(successTasks) > 0 {
-			// update bill submitted status
-			worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
-			// put into confirm queue
-			worker.billConfirmQueue <- successTasks
-		}
-
-		if len(failureTasks) > 0 {
-			// put into retry queue
-			worker.billSettlementQueue <- failureTasks
 		}
 	}
 }
 
-func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) (successTasks, failureTasks []*BillTask) {
+func (worker *BlockchainWorker) settleBillTasks(billTasks []*BillTask) {
+	var todoTasks, deadTasks []*BillTask
+
+	// filter dead tasks and todo tasks
+	for i := range billTasks {
+		if billTasks[i].TryTimes > worker.MaxSettlementRetries {
+			logrus.WithFields(logrus.Fields{
+				"bill":       *billTasks[i].Bill,
+				"statements": billTasks[i].Statements,
+				"tryTimes":   billTasks[i].TryTimes,
+			}).Warn("Blockchain worker dumped (dead) bill tasks after too many retries")
+			deadTasks = append(deadTasks, billTasks[i])
+			continue
+		}
+
+		todoTasks = append(todoTasks, billTasks[i])
+	}
+
+	if len(deadTasks) > 0 {
+		// update bill failed status
+		worker.updateBillTaskStatus(deadTasks, model.BillStatusFailed)
+	}
+
+	if len(todoTasks) == 0 {
+		return
+	}
+
+	successTasks, failureTasks := worker.doSettleBillTasks(todoTasks)
+
+	if len(successTasks) > 0 {
+		// update bill submitted status
+		worker.updateBillTaskStatus(successTasks, model.BillStatusSubmitted)
+		// put into confirm queue
+		worker.billConfirmQueue <- successTasks
+	}
+
+	if len(failureTasks) > 0 {
+		// put into retry queue
+		worker.billSettlementQueue <- failureTasks
+	}
+}
+
+func (worker *BlockchainWorker) doSettleBillTasks(billTasks []*BillTask) (successTasks, failureTasks []*BillTask) {
 	start := time.Now()
 	defer metrics.Worker.SettleOnceQps().UpdateSince(start)
 
@@ -443,14 +495,20 @@ func (worker *BlockchainWorker) updateBillTaskStatus(tasks []*BillTask, status u
 	}
 }
 
-func (worker *BlockchainWorker) poll() {
+func (worker *BlockchainWorker) poll(ctx context.Context) {
 	ticker := time.NewTicker(worker.PollingInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if err := worker.pollOnce(); err != nil {
-			logrus.WithError(err).
-				Error("Blockchain worker failed to poll bill tasks for settlement")
+	for {
+		select {
+		case <-ticker.C:
+			if err := worker.pollOnce(); err != nil {
+				logrus.WithError(err).
+					Error("Blockchain worker failed to poll bill tasks for settlement")
+			}
+		case <-ctx.Done():
+			logrus.Info("Blockchain worker polling completed")
+			return
 		}
 	}
 }
@@ -495,7 +553,7 @@ func (w *BlockchainWorker) pollOnce() error {
 
 	billTasks := make([]*BillTask, 0, len(bills))
 	for _, bill := range bills {
-		statements := w.billSvc.GetAndDelStatements(bill.ID)
+		statements := w.billSvc.GetStatements(bill.ID)
 		billTasks = append(billTasks, NewBillTask(bill, statements))
 	}
 
@@ -523,4 +581,46 @@ func (w *BlockchainWorker) isOverloaded() (bool, string) {
 	}
 
 	return false, ""
+}
+
+func (w *BlockchainWorker) persist() {
+	var bills []*model.Bill
+	ks := new(jsonstore.JSONStore)
+
+	// iterate all existed bills
+	res := w.sqliteStore.FindInBatches(&bills, w.PollingBatchSize, func(tx *gorm.DB, batch int) error {
+		for _, bill := range bills {
+			task := &BillTask{
+				Bill:       bill,
+				Statements: w.billSvc.GetStatements(bill.ID),
+			}
+
+			if err := ks.Set(fmt.Sprintf("bill:%v", bill.ID), task); err != nil {
+				logrus.WithField("task", task).Error("Failed to json store set billing task")
+			}
+		}
+
+		return nil
+	})
+
+	if res.Error != nil {
+		logrus.WithError(res.Error).Error("Failed to list all bills for persistence")
+	}
+
+	if len(ks.Data) == 0 { // no bills?
+		return
+	}
+
+	// prepare persistence folder
+	err := os.MkdirAll(w.PersistencePath, os.ModePerm)
+	if err != nil {
+		logrus.WithField("path", w.PersistencePath).Error("Failed to prepare path folder")
+		return
+	}
+
+	// save file
+	fn := fmt.Sprintf("%v/ps.%v.json.gz", w.PersistencePath, time.Now().Unix())
+	if err := jsonstore.Save(ks, fn); err != nil {
+		logrus.WithField("fileName", fn).WithError(err).Error("Failed to save json store file")
+	}
 }

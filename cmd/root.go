@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"os"
+	"sync"
 
 	"github.com/Conflux-Chain/web3pay-service/api"
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
@@ -9,7 +11,9 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/service"
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
+	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/Conflux-Chain/web3pay-service/worker"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -48,14 +52,36 @@ func start(cmd *cobra.Command, args []string) {
 		chainOpsProvider, sqliteStore, serviceFactory.Billing, serviceFactory.Blockchain,
 	)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
 	// start monitor server
-	go chainMonitor.Sync()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		chainMonitor.Sync(ctx)
+	}()
 
 	// start blockchain worker
-	go chainWorker.Run()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		chainWorker.Run(ctx)
+	}()
 
 	// start RPC server
-	api.MustServe(serviceFactory)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		go api.MustServe(serviceFactory)
+		<-ctx.Done()
+
+		err := api.Shutdown()
+		logrus.WithError(err).Info("RPC server shut down")
+	}()
+
+	util.GracefulShutdown(&wg, cancel)
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
