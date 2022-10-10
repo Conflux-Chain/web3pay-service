@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Conflux-Chain/web3pay-service/contract"
-	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,33 +12,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (bs *BlockchainService) addStatusConfirmTask(coin, addr common.Address) bool {
+func (bs *BlockchainService) addStatusConfirmTask(app, addr common.Address) bool {
 	logrus.WithFields(logrus.Fields{
-		"appCoin": coin, "address": addr,
-	}).Debug("Blockchain service adding APP coin status confirmation task")
+		"app": app, "address": addr,
+	}).Debug("Blockchain service adding APP account status confirmation task")
 
-	if len(bs.appCoinStatusConfirmQueue) >= statusConfirmQueueSize {
-		logrus.Warn("APP coin status confirmation queue full")
+	if len(bs.appAccountStatusConfirmQueue) >= statusConfirmQueueSize {
+		logrus.Warn("APP account status confirmation queue full")
 		return false
 	}
 
-	bs.appCoinStatusConfirmQueue <- [2]common.Address{coin, addr}
+	bs.appAccountStatusConfirmQueue <- [2]common.Address{app, addr}
 	return true
 }
 
 // implements `ContractEventObserver` interface
 
 func (bs *BlockchainService) StatusConfirmQueue() <-chan [2]common.Address {
-	return bs.appCoinStatusConfirmQueue
+	return bs.appAccountStatusConfirmQueue
 }
 
 func (bs *BlockchainService) OnConfirmStatus(
-	coin, addr common.Address, balance *big.Int, frozen, block int64,
+	app, addr common.Address, balance *big.Int, frozen, block int64,
 ) error {
-	account, err := bs.UpdateAccountStatus(coin, addr, balance, &frozen, &block)
+	account, err := bs.UpdateAccountStatus(app, addr, balance, &frozen, &block)
 
 	logrus.WithFields(logrus.Fields{
-		"appCoin": coin, "address": addr,
+		"app": app, "address": addr,
 		"frozen": frozen, "block": block,
 		"newBalance":    balance.Int64(),
 		"updateAccount": account,
@@ -48,33 +47,47 @@ func (bs *BlockchainService) OnConfirmStatus(
 	return err
 }
 
-func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED, rawlog *types.Log) error {
+func (bs *BlockchainService) OnAppCreated(event *contract.AppRegistryCreated, rawlog *types.Log) error {
 	bs.workerPool.Submit(func() {
 		for {
-			coin := event.Addr
 			blockNum := int64(rawlog.BlockNumber)
 			baseCallOpt := &bind.CallOpts{
 				BlockNumber: big.NewInt(blockNum),
 			}
 
-			resources, err := bs.provider.GetAppCoinResources(baseCallOpt, coin)
+			logger := logrus.WithFields(logrus.Fields{
+				"app":            event.App,
+				"owner":          event.Owner,
+				"operator":       event.Operator,
+				"apiWeightToken": event.ApiWeightToken,
+			})
+
+			pendingSec, err := bs.provider.GetPendingSeconds(baseCallOpt, event.ApiWeightToken)
 			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"AppCoin": event.Addr, "AppCoinOwner": event.AppOwner,
-				}).WithError(err).Error("Blockchain service failed to get new created APP coin resources")
+				logger.Error("Blockchain service failed to get pending seconds")
 				time.Sleep(time.Second)
 				continue
 			}
 
-			bs.appCoinMutex.Lock()
-			defer bs.appCoinMutex.Unlock()
-
-			bs.appCoinBaseMap[coin] = AppCoinBase{
-				UpdateBlock: blockNum, Addr: coin,
-				Owner: event.AppOwner, Resources: resources,
+			resources, err := bs.provider.GetConfigResources(baseCallOpt, event.ApiWeightToken)
+			if err != nil {
+				logger.WithError(err).Error("Blockchain service failed to get new created APP resources")
+				time.Sleep(time.Second)
+				continue
 			}
 
-			logrus.WithField("appCoinBase", bs.appCoinBaseMap[coin]).
+			bs.appMutex.Lock()
+			defer bs.appMutex.Unlock()
+
+			bs.appBaseMap[event.App] = AppBase{
+				UpdateBlock:    blockNum,
+				Addr:           event.App,
+				ApiWeightToken: event.ApiWeightToken,
+				PendingSeconds: pendingSec,
+				Resources:      resources,
+			}
+
+			logrus.WithField("appBase", bs.appBaseMap[event.App]).
 				Debug("Blockchain service `OnAppCreated` event handled")
 			return
 		}
@@ -83,76 +96,55 @@ func (bs *BlockchainService) OnAppCreated(event *contract.ControllerAPPCREATED, 
 	return nil
 }
 
-func (bs *BlockchainService) OnDrop(event *contract.AirdropDrop, rawlog *types.Log) error {
-	if event.Amount.Cmp(big.NewInt(0)) == 0 {
+func (bs *BlockchainService) OnDeposit(event *contract.AppDeposit, rawlog *types.Log) error {
+	if event.TokenId.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 || // vip coin
+		event.TokenId.Cmp(big.NewInt(contract.TokenIdAirdrop)) != 0 { // airdrop
 		return nil
 	}
 
-	depositReq := &DepositRequest{
-		Coin:        rawlog.Address,
-		Address:     event.To,
+	return bs.deposit(&DepositRequest{
+		App:         rawlog.Address,
+		Address:     event.Receiver,
 		Amount:      event.Amount,
 		TxHash:      rawlog.TxHash,
 		BlockHash:   rawlog.BlockHash,
 		BlockNumber: int64(rawlog.BlockNumber),
 		SubmitAt:    time.Now(),
-	}
-	err := bs.DepositPending(depositReq)
-
-	logrus.WithFields(logrus.Fields{
-		"depositRequest": depositReq,
-		"amount":         depositReq.Amount.Int64(),
-	}).WithError(err).Debug("Blockchain service `OnDrop` event handled")
-
-	return err
+	})
 }
 
-func (bs *BlockchainService) OnTransfer(event *contract.APPCoinTransferSingle, rawlog *types.Log) error {
-	// only minted and burnt event for `FT_ID` token concerned only
-	if event.Value.Cmp(big.NewInt(0)) == 0 || event.Id.Cmp(big.NewInt(contract.FT_ID)) != 0 {
+func (bs *BlockchainService) OnTransfer(event *contract.VipCoinTransferSingle, rawlog *types.Log) error {
+	if event.Id.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 || // vip coin
+		event.Id.Cmp(big.NewInt(contract.TokenIdAirdrop)) != 0 { // airdrop
 		return nil
 	}
 
-	// for minted event, depositing balance
-	if util.IsZeroAddress(event.From) {
-		return bs.deposit(&DepositRequest{
-			Coin:        rawlog.Address,
-			Address:     event.To,
-			Amount:      event.Value,
-			TxHash:      rawlog.TxHash,
-			BlockHash:   rawlog.BlockHash,
-			BlockNumber: int64(rawlog.BlockNumber),
-			SubmitAt:    time.Now(),
-		})
+	if !util.IsZeroAddress(event.To) { // only burnt event are concerned
+		return nil
 	}
 
-	// for burnt event, deducting account balance
-	if util.IsZeroAddress(event.To) {
-		logger := logrus.WithFields(logrus.Fields{
-			"appCoinAddress": rawlog.Address,
-			"accountAddress": event.From,
-			"amount":         event.Value.Int64(),
-			"blockNumber":    rawlog.BlockNumber,
-			"operator":       event.Operator,
-		})
+	logger := logrus.WithFields(logrus.Fields{
+		"vipCoin":        rawlog.Address,
+		"accountAddress": event.From,
+		"amount":         event.Value.Int64(),
+		"blockNumber":    rawlog.BlockNumber,
+		"operator":       event.Operator,
+	})
 
-		// skip transfer burnt event from transactions initiated by our operator
-		if event.Operator == bs.provider.OperatorAddress() {
-			logger.Debug("Blockchain service skipped transfer burnt event due to inner operator")
-			return nil
-		}
-
-		decreased, err := bs.DecreaseAccountBalance(
-			rawlog.Address, event.From, event.Value, int64(rawlog.BlockNumber),
-		)
-
-		logger.WithField("decreased", decreased).
-			WithError(err).
-			Debug("Blockchain service `OnTransfer` burnt event handled")
-		return err
+	// skip transfer burnt event from transactions initiated by our operator
+	if event.Operator == bs.provider.OperatorAddress() {
+		logger.Debug("Blockchain service skipped transfer burnt event due to inner operator")
+		return nil
 	}
 
-	return nil
+	decreased, err := bs.DecreaseAccountBalance(
+		rawlog.Address, event.From, event.Value, int64(rawlog.BlockNumber),
+	)
+
+	logger.WithField("decreased", decreased).
+		WithError(err).
+		Debug("Blockchain service `OnTransfer` burnt event handled")
+	return err
 }
 
 func (bs *BlockchainService) deposit(depositReq *DepositRequest) error {
@@ -165,15 +157,15 @@ func (bs *BlockchainService) deposit(depositReq *DepositRequest) error {
 	return err
 }
 
-func (bs *BlockchainService) OnFrozen(event *contract.APPCoinFrozen, rawlog *types.Log) error {
-	coin := rawlog.Address
-	addr := event.Addr
-	// TODO: extracted from event? but not provided yet
+func (bs *BlockchainService) OnFrozen(event *contract.AppFrozen, rawlog *types.Log) error {
+	app := rawlog.Address
+	addr := event.Account
+	// TODO: extracted from event? but not provided by event body yet
 	newStatus := int64(1)
-	account, err := bs.UpdateAccountStatus(coin, addr, nil, &newStatus, nil)
+	account, err := bs.UpdateAccountStatus(app, addr, nil, &newStatus, nil)
 
 	logrus.WithFields(logrus.Fields{
-		"appCoin":       coin,
+		"app":           app,
 		"address":       addr,
 		"frozen":        newStatus,
 		"updateAccount": account,
@@ -182,13 +174,13 @@ func (bs *BlockchainService) OnFrozen(event *contract.APPCoinFrozen, rawlog *typ
 	return err
 }
 
-func (bs *BlockchainService) OnWithdraw(event *contract.APPCoinWithdraw, rawlog *types.Log) error {
-	coin := rawlog.Address
+func (bs *BlockchainService) OnWithdraw(event *contract.AppWithdraw, rawlog *types.Log) error {
+	app := rawlog.Address
 	addr := event.Account
 	_, err := bs.DeleteAccountStatus(rawlog.Address, event.Account)
 
 	logrus.WithFields(logrus.Fields{
-		"appCoin": coin,
+		"app":     app,
 		"address": addr,
 		"amount":  event.Amount.Int64(),
 	}).WithError(err).Debug("Blockchain service `OnWithdraw` event handled")
@@ -196,56 +188,51 @@ func (bs *BlockchainService) OnWithdraw(event *contract.APPCoinWithdraw, rawlog 
 	return err
 }
 
-func (bs *BlockchainService) OnAppOwnerChanged(event *contract.APPCoinAppOwnerChanged, rawlog *types.Log) error {
-	bs.appCoinMutex.Lock()
-	defer bs.appCoinMutex.Unlock()
-
-	appCoin, ok := bs.appCoinBaseMap[rawlog.Address]
-	if !ok {
-		return model.ErrAppCoinNotFound
-	}
-
-	appCoin.Owner = event.To
-	return nil
-}
-
-func (bs *BlockchainService) OnResourceChanged(event *contract.APPCoinResourceChanged, rawlog *types.Log) error {
+func (bs *BlockchainService) OnResourceChanged(event *contract.ApiWeightTokenResourceChanged, rawlog *types.Log) error {
 	bs.workerPool.Submit(func() {
 		for {
-			coin := rawlog.Address
+			apiWeightToken := rawlog.Address
 			blockNum := int64(rawlog.BlockNumber)
 			baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(blockNum)}
 
-			resources, err := bs.provider.GetAppCoinResources(baseCallOpt, coin)
+			resources, err := bs.provider.GetConfigResources(baseCallOpt, apiWeightToken)
 			if err != nil {
 				logrus.WithFields(logrus.Fields{
+					"apiWeightToken": apiWeightToken,
 					"resourceId":     event.Id,
 					"resourceWeight": event.Weight.Int64(),
 					"Op":             event.Op,
-				}).WithError(err).Error("Blockchain service failed to get changed APP coin resources")
+				}).WithError(err).Error("Blockchain service failed to get config resources")
 				time.Sleep(time.Second)
 				continue
 			}
 
-			bs.appCoinMutex.Lock()
-			defer bs.appCoinMutex.Unlock()
+			bs.appMutex.Lock()
+			defer bs.appMutex.Unlock()
 
-			// not our concerned APP coin
-			appCoinBase, ok := bs.appCoinBaseMap[coin]
-			if !ok {
+			var app common.Address
+			for _app, ab := range bs.appBaseMap {
+				if ab.ApiWeightToken == apiWeightToken {
+					app = _app
+					break
+				}
+			}
+
+			appBase, ok := bs.appBaseMap[app]
+			if !ok { // // APP not found?
 				return
 			}
 
 			// in case of stale block update
-			if appCoinBase.UpdateBlock >= blockNum {
+			if appBase.UpdateBlock >= blockNum {
 				return
 			}
 
-			appCoinBase.Resources = resources
-			appCoinBase.UpdateBlock = blockNum
-			bs.appCoinBaseMap[coin] = appCoinBase
+			appBase.Resources = resources
+			appBase.UpdateBlock = blockNum
+			bs.appBaseMap[app] = appBase
 
-			logrus.WithField("appCoinBase", appCoinBase).
+			logrus.WithField("appBase", appBase).
 				Debug("Blockchain service `OnResourceChanged` event handled")
 			return
 		}

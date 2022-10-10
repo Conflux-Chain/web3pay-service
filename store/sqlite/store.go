@@ -67,10 +67,10 @@ func (ms *SqliteStore) GetBill(coin, addr string, status int) (*model.Bill, bool
 	return bill, true, nil
 }
 
-func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) (*model.Bill, error) {
+func (ms *SqliteStore) UpsertBill(tx *gorm.DB, app, addr string, fee *big.Int) (*model.Bill, error) {
 	start := time.Now()
 
-	bill, existed, err := ms.GetBill(coin, addr, model.BillStatusCreated)
+	bill, existed, err := ms.GetBill(app, addr, model.BillStatusCreated)
 	if err != nil {
 		metrics.Store.UpsertBillQps(err).UpdateSince(start)
 		return nil, errors.WithMessage(err, "failed to load bill")
@@ -78,7 +78,7 @@ func (ms *SqliteStore) UpsertBill(tx *gorm.DB, coin, addr string, fee *big.Int) 
 
 	if !existed { // insert
 		bill = &model.Bill{
-			Coin:      coin,
+			App:       app,
 			Address:   addr,
 			Fee:       decimal.NewFromBigInt(fee, 0),
 			Status:    model.BillStatusCreated,

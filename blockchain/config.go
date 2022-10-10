@@ -7,24 +7,24 @@ import (
 )
 
 type Config struct {
-	ControllerContractAddr common.Address
-	CreatorAddr            *common.Address
-	OperatorPrivateKey     string
+	AppRegistryContractAddr common.Address
+	OwnerAddr               *common.Address
+	OperatorPrivateKey      string
 }
 
 func MustNewConfigFromViper() *Config {
 	var rawConfig struct {
-		ControllerContractAddr string
-		CreatorAddr            string
-		OperatorPrivateKey     string
+		AppRegistryContractAddr string
+		OwnerAddr               string
+		OperatorPrivateKey      string
 	}
 
 	viper.MustUnmarshalKey("blockchain", &rawConfig)
 
-	if !common.IsHexAddress(rawConfig.ControllerContractAddr) {
+	if !common.IsHexAddress(rawConfig.AppRegistryContractAddr) {
 		logrus.WithField(
-			"controllerContractAddr", rawConfig.ControllerContractAddr,
-		).Fatal("Invalid controller contract address configured")
+			"appRegistryContractAddr", rawConfig.AppRegistryContractAddr,
+		).Fatal("Invalid `AppRegistry` contract address configured")
 	}
 
 	if len(rawConfig.OperatorPrivateKey) == 0 {
@@ -32,19 +32,19 @@ func MustNewConfigFromViper() *Config {
 	}
 
 	conf := &Config{
-		ControllerContractAddr: common.HexToAddress(rawConfig.ControllerContractAddr),
-		OperatorPrivateKey:     rawConfig.OperatorPrivateKey,
+		AppRegistryContractAddr: common.HexToAddress(rawConfig.AppRegistryContractAddr),
+		OperatorPrivateKey:      rawConfig.OperatorPrivateKey,
 	}
 
-	if len(rawConfig.CreatorAddr) > 0 {
-		if !common.IsHexAddress(rawConfig.CreatorAddr) {
+	if len(rawConfig.OwnerAddr) > 0 {
+		if !common.IsHexAddress(rawConfig.OwnerAddr) {
 			logrus.WithField(
-				"creatorAddr", rawConfig.CreatorAddr,
-			).Fatal("Invalid creator address configured")
+				"ownerAddr", rawConfig.OwnerAddr,
+			).Fatal("Invalid owner address configured")
 		}
 
-		creator := common.HexToAddress(rawConfig.CreatorAddr)
-		conf.CreatorAddr = &creator
+		owner := common.HexToAddress(rawConfig.OwnerAddr)
+		conf.OwnerAddr = &owner
 	}
 
 	return conf

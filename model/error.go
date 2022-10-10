@@ -13,11 +13,11 @@ var (
 	ErrAuth           = &BusinessError{Code: 3, Message: "Authentication failed"}
 
 	// specific error
-	ErrAppCoinNotFound         = &BusinessError{Code: 10000, Message: "APP coin not found"}
-	ErrAppCoinResourceNotFound = &BusinessError{Code: 10001, Message: "APP coin resource not found"}
-	ErrInsufficentBalance      = &BusinessError{Code: 10002, Message: "Insufficient balance"}
-	ErrAccountAddrFrozen       = &BusinessError{Code: 10003, Message: "Account address fronzen"}
-	ErrNotAnValidAppCoinOwner  = &BusinessError{Code: 10004, Message: "Not a valid APP coin contract owner"}
+	ErrAppNotFound            = &BusinessError{Code: 10000, Message: "APP not found"}
+	ErrConfigResourceNotFound = &BusinessError{Code: 10001, Message: "Config resource not found"}
+	ErrInsufficentBalance     = &BusinessError{Code: 10002, Message: "Insufficient balance"}
+	ErrAccountAddrFrozen      = &BusinessError{Code: 10003, Message: "Account address fronzen"}
+	ErrNotAnValidAppOperator  = &BusinessError{Code: 10004, Message: "Not a valid APP contract operator"}
 )
 
 type BusinessError struct {

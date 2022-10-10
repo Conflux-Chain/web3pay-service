@@ -21,7 +21,7 @@ var (
 )
 
 func init() {
-	// These configurations are based on Conflux eSpace network with `CFX` coin unit.
+	// These configurations are based on Conflux eSpace network with `CFX` unit.
 	// TODO: support to load from configuration file.
 	depositProgressiveArrivalLatency := map[float32]time.Duration{
 		100:             time.Second * 0,      // for deposit amount (0, 100], instantly
@@ -60,7 +60,7 @@ func init() {
 }
 
 type DepositRequest struct {
-	Coin        common.Address
+	App         common.Address
 	Address     common.Address
 	Amount      *big.Int
 	TxHash      common.Hash
@@ -160,12 +160,12 @@ func (bs *BlockchainService) Deposit() {
 		}
 
 		deposited, err := bs.IncreaseAccountBalance(
-			depositReq.Coin, depositReq.Address,
+			depositReq.App, depositReq.Address,
 			depositReq.Amount, depositReq.BlockNumber,
 		)
 		if err != nil {
 			logger.WithError(err).
-				Error("Blockchain service failed to increase APP coin account balance")
+				Error("Blockchain service failed to increase APP account balance")
 			continue
 		}
 

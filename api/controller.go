@@ -27,7 +27,7 @@ func (bc *BillingController) Bill(hc *handlerContext) (interface{}, error) {
 
 	ctx := hc.r.Context()
 	reqId := requestIdFromContext(ctx)
-	cr.AppCoin = contractAddrFromContext(ctx)
+	cr.App = contractAddrFromContext(ctx)
 	cr.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{

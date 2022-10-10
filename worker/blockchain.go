@@ -242,7 +242,7 @@ func (worker *BlockchainWorker) finishTasks(tasks []*BillTask) {
 		delBillIds = append(delBillIds, tasks[i].ID)
 
 		exempted, err := worker.chainSvc.WriteOffAccountFee(
-			common.HexToAddress(tasks[i].Coin),
+			common.HexToAddress(tasks[i].App),
 			common.HexToAddress(tasks[i].Address),
 			tasks[i].Fee.BigInt(),
 		)
@@ -333,31 +333,31 @@ func (worker *BlockchainWorker) doSettleBillTasks(billTasks []*BillTask) (succes
 	start := time.Now()
 	defer metrics.Worker.SettleOnceQps().UpdateSince(start)
 
-	// split tasks && requests group by APP coin for batch operation
-	coinTasks := make(map[string][]*BillTask)
-	coinRequests := make(map[string][]contract.APPCoinChargeRequest)
+	// split tasks && requests group by APP for batch operation
+	appTasks := make(map[string][]*BillTask)
+	appRequests := make(map[string][]contract.IAppConfigChargeRequest)
 
 	for _, task := range billTasks {
-		var details []contract.APPCoinResourceUseDetail
+		var details []contract.IAppConfigResourceUseDetail
 		for resourceIndex, callTimes := range task.Statements {
-			details = append(details, contract.APPCoinResourceUseDetail{
+			details = append(details, contract.IAppConfigResourceUseDetail{
 				Id:    resourceIndex,
 				Times: big.NewInt(callTimes),
 			})
 		}
 
-		coinRequests[task.Coin] = append(coinRequests[task.Coin], contract.APPCoinChargeRequest{
+		appRequests[task.App] = append(appRequests[task.App], contract.IAppConfigChargeRequest{
 			Account:   common.HexToAddress(task.Address),
 			Amount:    task.Fee.BigInt(),
 			UseDetail: details,
 		})
 
-		coinTasks[task.Coin] = append(coinTasks[task.Coin], task)
+		appTasks[task.App] = append(appTasks[task.App], task)
 	}
 
 	// call batch charge contract method for settlement
-	for coin, req := range coinRequests {
-		tasks := coinTasks[coin]
+	for app, req := range appRequests {
+		tasks := appTasks[app]
 		taskInfos := make([]interface{}, 0, len(tasks))
 
 		for i := range tasks {
@@ -371,13 +371,13 @@ func (worker *BlockchainWorker) doSettleBillTasks(billTasks []*BillTask) (succes
 		}
 
 		logger := logrus.WithFields(logrus.Fields{
-			"APPCoin":              coin,
+			"APP":                  app,
 			"batchChargeBillTasks": taskInfos,
 		})
 
 		// prepare the transaction to be sent
-		sendTxn, err := worker.provider.BatchChargeAppCoinBills(
-			&bind.TransactOpts{NoSend: true}, common.HexToAddress(coin), req,
+		sendTxn, err := worker.provider.BatchChargeAppBills(
+			&bind.TransactOpts{NoSend: true}, common.HexToAddress(app), req,
 		)
 
 		var rawTxnData []byte

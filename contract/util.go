@@ -12,76 +12,70 @@ const (
 	OpCodeResourceConfigUpdate
 	OpCodeResourceConfigDelete
 	OpCodeResourceConfigNoPending
+	OpCodeResourceConfigPendingInitDefault
 
-	// token id for fungible token (ERC20, APP Coin)
-	FT_ID          = 0
-	AIRDROP_ID     = 1
-	TAKE_PROFIT_ID = 2
-	BILLING_ID     = 3
+	// token id
+	TokenIdCoin    = 0
+	TokenIdAirdrop = 1
 )
 
 var (
 	errEventSigMismatch = errors.New("event signature mismatch")
 
-	// event names
-	EventControllerAppCreated   = "APP_CREATED"
-	EventAirdropDrop            = "Drop"
-	EventAppCoinTransferSingle  = "TransferSingle"
-	EventAppCoinFrozen          = "Frozen"
-	EventAppCointWithdraw       = "Withdraw"
-	EventAppCoinResourceChanged = "ResourceChanged"
-	EventAppOwnerChanged        = "AppOwnerChanged"
+	// events
+	EventAppRegistryCreated = "Created"
 
-	// method names
-	MethodAppCoinChargeBatch = "chargeBatch"
-	MethodFlushPendingConfig = "flushPendingConfig"
+	EventAppDeposit  = "Deposit"
+	EventAppWithdraw = "Withdraw"
+	EventAppFrozen   = "Frozen"
+
+	EventApiTokenWeightResourceChanged = "ResourceChanged"
+
+	EventVipCoinTransferSingle = "TransferSingle"
+
+	// methods
+	MethodAppChargeBatch                   = "chargeBatch"
+	MethodApiWeightTokenFlushPendingConfig = "flushPendingConfig"
 )
 
-func UnpackControllerAPPCREATED(ctrlAbi *abi.ABI, log *types.Log) (*ControllerAPPCREATED, error) {
-	eventObj := new(ControllerAPPCREATED)
-	err := unpackLogEventData(eventObj, ctrlAbi, EventControllerAppCreated, log)
+func UnpackAppRegistryCreated(abi *abi.ABI, log *types.Log) (*AppRegistryCreated, error) {
+	eventObj := new(AppRegistryCreated)
+	err := unpackLogEventData(eventObj, abi, EventAppRegistryCreated, log)
 
 	return eventObj, err
 }
 
-func UnpackAPPCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinTransferSingle, error) {
-	eventObj := new(APPCoinTransferSingle)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCoinTransferSingle, log)
+func UnpackAppDeposit(appAbi *abi.ABI, log *types.Log) (*AppDeposit, error) {
+	eventObj := new(AppDeposit)
+	err := unpackLogEventData(eventObj, appAbi, EventAppDeposit, log)
 
 	return eventObj, err
 }
 
-func UnpackAirdropDrop(airdropAbi *abi.ABI, log *types.Log) (*AirdropDrop, error) {
-	eventObj := new(AirdropDrop)
-	err := unpackLogEventData(eventObj, airdropAbi, EventAirdropDrop, log)
+func UnpackAppFrozen(appAbi *abi.ABI, log *types.Log) (*AppFrozen, error) {
+	eventObj := new(AppFrozen)
+	err := unpackLogEventData(eventObj, appAbi, EventAppWithdraw, log)
 
 	return eventObj, err
 }
 
-func UnpackAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinFrozen, error) {
-	eventObj := new(APPCoinFrozen)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCoinFrozen, log)
+func UnpackAppWithdraw(appAbi *abi.ABI, log *types.Log) (*AppWithdraw, error) {
+	eventObj := new(AppWithdraw)
+	err := unpackLogEventData(eventObj, appAbi, EventAppWithdraw, log)
 
 	return eventObj, err
 }
 
-func UnpackAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinWithdraw, error) {
-	eventObj := new(APPCoinWithdraw)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCointWithdraw, log)
+func UnpackApiWeightTokenResourceChanged(awtAbi *abi.ABI, log *types.Log) (*ApiWeightTokenResourceChanged, error) {
+	eventObj := new(ApiWeightTokenResourceChanged)
+	err := unpackLogEventData(eventObj, awtAbi, EventApiTokenWeightResourceChanged, log)
 
 	return eventObj, err
 }
 
-func UnpackAPPCoinAppOwnerChanged(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinAppOwnerChanged, error) {
-	eventObj := new(APPCoinAppOwnerChanged)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppOwnerChanged, log)
-
-	return eventObj, err
-}
-
-func UnpackAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.Log) (*APPCoinResourceChanged, error) {
-	eventObj := new(APPCoinResourceChanged)
-	err := unpackLogEventData(eventObj, appCoinAbi, EventAppCoinResourceChanged, log)
+func UnpackVipCoinTransferSingle(vcAbi *abi.ABI, log *types.Log) (*VipCoinTransferSingle, error) {
+	eventObj := new(VipCoinTransferSingle)
+	err := unpackLogEventData(eventObj, vcAbi, EventVipCoinTransferSingle, log)
 
 	return eventObj, err
 }
