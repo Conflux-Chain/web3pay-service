@@ -226,8 +226,7 @@ func (m *Monitor) handleAppRegistryCreated(appRegistryAbi *abi.ABI, log *types.L
 
 	m.AppAddresses = append(m.AppAddresses, eventCreated.App)
 	m.ApiWeightTokens = append(m.ApiWeightTokens, eventCreated.ApiWeightToken)
-	// TODO: extract VipCoin from event log
-	// m.VipCoins = append(m.VipCoins, eventCreated.VipCoin)
+	m.VipCoins = append(m.VipCoins, eventCreated.VipCoin)
 
 	if err := m.contractEventObserver.OnAppCreated(eventCreated, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle `AppRegistryCreated` event")
