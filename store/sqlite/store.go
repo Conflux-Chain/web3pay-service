@@ -37,10 +37,10 @@ func (ms *SqliteStore) Close() error {
 	}
 }
 
-func (ms *SqliteStore) GetBillFee(coin, addr string) (*big.Int, error) {
+func (ms *SqliteStore) GetBillFee(app, addr string) (*big.Int, error) {
 	var bills []*model.Bill
 
-	if err := ms.Find(&bills, "coin = ? AND address = ?", coin, addr).Error; err != nil {
+	if err := ms.Find(&bills, "app = ? AND address = ?", app, addr).Error; err != nil {
 		return nil, err
 	}
 
@@ -52,10 +52,10 @@ func (ms *SqliteStore) GetBillFee(coin, addr string) (*big.Int, error) {
 	return totalFees.BigInt(), nil
 }
 
-func (ms *SqliteStore) GetBill(coin, addr string, status int) (*model.Bill, bool, error) {
+func (ms *SqliteStore) GetBill(app, addr string, status int) (*model.Bill, bool, error) {
 	bill := &model.Bill{}
 
-	err := ms.First(bill, "coin = ? AND address = ? AND status = ?", coin, addr, status).Error
+	err := ms.First(bill, "app = ? AND address = ? AND status = ?", app, addr, status).Error
 	if ms.IsRecordNotFound(err) {
 		return nil, false, nil
 	}
