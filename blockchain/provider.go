@@ -39,9 +39,10 @@ type Provider struct {
 
 	operatorAddr         common.Address
 	bindCallContext      *contractBindCallContext
-	controller           *contract.Controller
+	appRegistry          *contract.AppRegistry
 	mutex                sync.Mutex
-	appCoins             sync.Map // common.Address => *contract.APPCoin
+	apps                 sync.Map // common.Address => *contract.APP
+	apiWeightTokens      sync.Map // common.Address => *contract.ApiWeightToken
 	referenceBlockNumber int64    // reference block number for ops (eg., sync)
 }
 
@@ -68,12 +69,12 @@ func MustNewProvider(config *Config) *Provider {
 
 	clientForContract, singerFn := w3c.ToClientForContract()
 
-	// init controller contract stub
-	ctrlCaller, err := contract.NewController(config.ControllerContractAddr, clientForContract)
+	// init AppRegistry contract stub
+	appRegistryCaller, err := contract.NewAppRegistry(config.AppRegistryContractAddr, clientForContract)
 	if err != nil {
-		logrus.WithField("ctrlAddr", config.ControllerContractAddr).
+		logrus.WithField("appRegistryAddr", config.AppRegistryContractAddr).
 			WithError(err).
-			Fatal("Failed to initialize controller contract")
+			Fatal("Failed to initialize `AppRegistry` contract")
 	}
 
 	refBlockNum := latestBlockNumber.Int64() - 2*skipBlocksAheadOfLeatestBlock
@@ -87,7 +88,7 @@ func MustNewProvider(config *Config) *Provider {
 			contractClient: clientForContract,
 			signer:         singerFn,
 		},
-		controller:           ctrlCaller,
+		appRegistry:          appRegistryCaller,
 		referenceBlockNumber: refBlockNum,
 	}
 }
@@ -102,38 +103,58 @@ func (p *Provider) ReferenceBlockNumber() int64 {
 	return p.referenceBlockNumber
 }
 
-// GetAppCoinContract gets APP coin contract caller.
-func (p *Provider) GetAppCoinContract(appCoinAddr common.Address) (*contract.APPCoin, error) {
-	if v, ok := p.appCoins.Load(appCoinAddr); ok {
-		return v.(*contract.APPCoin), nil
+// GetAppContract gets `APP` contract stub.
+func (p *Provider) GetAppContract(appAddr common.Address) (*contract.App, error) {
+	if v, ok := p.apps.Load(appAddr); ok {
+		return v.(*contract.App), nil
 	}
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	if v, ok := p.appCoins.Load(appCoinAddr); ok { // double check
-		return v.(*contract.APPCoin), nil
+	if v, ok := p.apps.Load(appAddr); ok { // double check
+		return v.(*contract.App), nil
 	}
 
-	appCoinCaller, err := contract.NewAPPCoin(appCoinAddr, p.bindCallContext.contractClient)
+	appCaller, err := contract.NewApp(appAddr, p.bindCallContext.contractClient)
 	if err != nil {
-		logrus.WithField("appCoinAddr", appCoinAddr).
-			WithError(err).
-			Info("Failed to create APP coin contract")
-
+		logrus.WithField("appAddr", appAddr).WithError(err).Info("Failed to create APP contract stub")
 		return nil, err
 	}
 
-	p.appCoins.Store(appCoinAddr, appCoinCaller)
-	return appCoinCaller, nil
+	p.apps.Store(appAddr, appCaller)
+	return appCaller, nil
 }
 
-// BatchChargeAppCoinBills batch charges APP coin account bills.
-func (p *Provider) BatchChargeAppCoinBills(
-	opts *bind.TransactOpts, coin common.Address, requests []contract.APPCoinChargeRequest) (*types.Transaction, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetApiWeightTokenContract gets `ApiWeightToken` contract stub.
+func (p *Provider) GetApiWeightTokenContract(awtAddr common.Address) (*contract.ApiWeightToken, error) {
+	if v, ok := p.apiWeightTokens.Load(awtAddr); ok {
+		return v.(*contract.ApiWeightToken), nil
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if v, ok := p.apiWeightTokens.Load(awtAddr); ok { // double check
+		return v.(*contract.ApiWeightToken), nil
+	}
+
+	awtCaller, err := contract.NewApiWeightToken(awtAddr, p.bindCallContext.contractClient)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+		logrus.WithField("apiWeightToken", awtAddr).WithError(err).Info("Failed to create `ApiWeightToken` contract stub")
+		return nil, err
+	}
+
+	p.apiWeightTokens.Store(awtAddr, awtCaller)
+	return awtCaller, nil
+}
+
+// BatchChargeAppBills batch charges APP bills.
+func (p *Provider) BatchChargeAppBills(
+	opts *bind.TransactOpts, app common.Address, requests []contract.IAppConfigChargeRequest) (*types.Transaction, error) {
+	appContract, err := p.GetAppContract(app)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get APP contract")
 	}
 
 	// bind call context
@@ -150,12 +171,12 @@ func (p *Provider) BatchChargeAppCoinBills(
 		return nil, errors.WithMessage(err, "failed to get gas price")
 	}
 
-	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
+	appAbi, err := contract.AppMetaData.GetAbi()
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin ABI")
+		return nil, errors.WithMessage(err, "failed to get APP contract ABI")
 	}
 
-	data, err := appCoinAbi.Pack(contract.MethodAppCoinChargeBatch, requests)
+	data, err := appAbi.Pack(contract.MethodAppChargeBatch, requests)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to pack ABI data")
 	}
@@ -163,7 +184,7 @@ func (p *Provider) BatchChargeAppCoinBills(
 	latestBlockNumberOrHash := types.BlockNumberOrHashWithNumber(types.LatestBlockNumber)
 	gas, err := p.EstimateGas(types.CallRequest{
 		From:     &opts.From,
-		To:       &coin,
+		To:       &app,
 		GasPrice: gasPrice,
 		Data:     data,
 	}, &latestBlockNumberOrHash)
@@ -174,14 +195,14 @@ func (p *Provider) BatchChargeAppCoinBills(
 	opts.GasPrice = gasPrice
 	opts.GasLimit = gas.Uint64()
 
-	return appCoinContract.ChargeBatch(opts, requests)
+	return appContract.ChargeBatch(opts, requests)
 }
 
-// FlushPendingResourceConfig flushes APP coin pending resource configurations.
-func (p *Provider) FlushPendingResourceConfig(opts *bind.TransactOpts, coin common.Address) (*types.Transaction, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// FlushApiWeightTokenPendingConfig flushes `ApiWeightToken` pending configurations.
+func (p *Provider) FlushApiWeightTokenPendingConfig(opts *bind.TransactOpts, awtAddr common.Address) (*types.Transaction, error) {
+	awtContract, err := p.GetApiWeightTokenContract(awtAddr)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+		return nil, errors.WithMessage(err, "failed to get `ApiWeightToken` contract")
 	}
 
 	// bind call context
@@ -198,12 +219,12 @@ func (p *Provider) FlushPendingResourceConfig(opts *bind.TransactOpts, coin comm
 		return nil, errors.WithMessage(err, "failed to get gas price")
 	}
 
-	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
+	awtAbi, err := contract.ApiWeightTokenMetaData.GetAbi()
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin ABI")
+		return nil, errors.WithMessage(err, "failed to get `ApiWeightToken` contract ABI")
 	}
 
-	data, err := appCoinAbi.Pack(contract.MethodFlushPendingConfig)
+	data, err := awtAbi.Pack(contract.MethodApiWeightTokenFlushPendingConfig)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to pack ABI data")
 	}
@@ -211,7 +232,7 @@ func (p *Provider) FlushPendingResourceConfig(opts *bind.TransactOpts, coin comm
 	latestBlockNumberOrHash := types.BlockNumberOrHashWithNumber(types.LatestBlockNumber)
 	gas, err := p.EstimateGas(types.CallRequest{
 		From:     &opts.From,
-		To:       &coin,
+		To:       &awtAddr,
 		GasPrice: gasPrice,
 		Data:     data,
 	}, &latestBlockNumberOrHash)
@@ -222,181 +243,177 @@ func (p *Provider) FlushPendingResourceConfig(opts *bind.TransactOpts, coin comm
 	opts.GasPrice = gasPrice
 	opts.GasLimit = gas.Uint64()
 
-	return appCoinContract.FlushPendingConfig(opts)
+	return awtContract.FlushPendingConfig(opts)
 }
 
-// GetAppCoinFrozenStatus gets APP coin frozen status for specific address.
-func (p *Provider) GetAppCoinFrozenStatus(
-	callOpts *bind.CallOpts, coin, address common.Address) (int64, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetAppApiWeightToken gets `ApiWeightToken` for specified app.
+func (p *Provider) GetAppApiWeightToken(
+	callOpts *bind.CallOpts, app common.Address) (common.Address, error) {
+	appContract, err := p.GetAppContract(app)
 	if err != nil {
-		return 0, errors.WithMessage(err, "failed to get APP coin contract")
+		return common.Address{}, errors.WithMessage(err, "failed to get APP contract")
 	}
 
-	fronzen, err := appCoinContract.FrozenMap(callOpts, address)
+	awtAddr, err := appContract.GetApiWeightToken(callOpts)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"coin": coin, "address": address,
-		}).WithError(err).Info("Failed to get APP coin fronze status")
-
-		return 0, errors.WithMessage(err, "failed to get APP coin fronze status")
+		logrus.WithField("app", app).WithError(err).Info("Failed to get `ApiWeightToken` for APP")
+		return common.Address{}, errors.WithMessage(err, "Failed to get `ApiWeightToken`")
 	}
 
-	return fronzen.Int64(), nil
+	return awtAddr, nil
 }
 
-func (p *Provider) GetAppCoinBalanceAndFrozenStatus(
-	callOpts *bind.CallOpts, coin, address common.Address) (*big.Int, int64, error) {
-	balance, err := p.GetAppCoinBalance(callOpts, coin, address)
+// GetAppVipCoin gets `VipCoin` for specified app.
+func (p *Provider) GetAppVipCoin(
+	callOpts *bind.CallOpts, app common.Address) (common.Address, error) {
+	appContract, err := p.GetAppContract(app)
 	if err != nil {
-		return nil, 0, errors.WithMessage(err, "failed to get balance")
+		return common.Address{}, errors.WithMessage(err, "failed to get APP contract")
 	}
 
-	frozen, err := p.GetAppCoinFrozenStatus(callOpts, coin, address)
+	vcAddr, err := appContract.GetVipCoin(callOpts)
 	if err != nil {
-		return nil, 0, errors.WithMessage(err, "failed to get frozen status")
+		logrus.WithField("app", app).WithError(err).Info("Failed to get `VipCoin` for APP")
+		return common.Address{}, errors.WithMessage(err, "Failed to get `VipCoin`")
+	}
+
+	return vcAddr, nil
+}
+
+// GetAppAccountBalanceAndFrozenStatus combo-gets APP account balance and frozen status.
+func (p *Provider) GetAppAccountBalanceAndFrozenStatus(
+	callOpts *bind.CallOpts, app, address common.Address) (*big.Int, int64, error) {
+	balance, err := p.GetAppAccountBalance(callOpts, app, address)
+	if err != nil {
+		return nil, 0, errors.WithMessage(err, "failed to get APP account balance")
+	}
+
+	frozen, err := p.GetAppAccountFrozenStatus(callOpts, app, address)
+	if err != nil {
+		return nil, 0, errors.WithMessage(err, "failed to get APP account frozen status")
 	}
 
 	return balance, frozen, err
 }
 
-// GetAppCoinBalance gets APP coin balance for specific address.
-func (p *Provider) GetAppCoinBalance(
-	callOpts *bind.CallOpts, coin, address common.Address) (*big.Int, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetAppAccountFrozenStatus gets APP account frozen status for specific address.
+func (p *Provider) GetAppAccountFrozenStatus(
+	callOpts *bind.CallOpts, app, address common.Address) (int64, error) {
+	appContract, err := p.GetAppContract(app)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+		return 0, errors.WithMessage(err, "failed to get APP contract")
 	}
 
-	balance, err := appCoinContract.BalanceOfWithAirdrop(callOpts, address)
+	fronzen, err := appContract.WithdrawSchedules(callOpts, address)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"coin": coin, "address": address,
-		}).WithError(err).Info("Failed to get APP coin balance")
+			"app": app, "address": address,
+		}).WithError(err).Info("Failed to get APP account frozen status")
 
-		return nil, errors.WithMessage(err, "failed to get APP coin balance")
+		return 0, errors.WithMessage(err, "failed to get APP account frozen status")
 	}
 
-	return balance.Total, nil
+	return fronzen.Int64(), nil
 }
 
-// GetAppCoinContractOwner gets APP coin contract owner.
-func (p *Provider) GetAppCoinContractOwner(
-	callOpts *bind.CallOpts, coin common.Address) (*common.Address, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetAppBalance gets APP account balance for specific address.
+func (p *Provider) GetAppAccountBalance(
+	callOpts *bind.CallOpts, app, address common.Address) (*big.Int, error) {
+	appContract, err := p.GetAppContract(app)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+		return nil, errors.WithMessage(err, "failed to get APP contract")
 	}
 
-	// fetch APP coin contract owner
-	appCoinOwner, err := appCoinContract.AppOwner(callOpts)
+	depositAmount, airdropAmount, err := appContract.BalanceOf(callOpts, address)
 	if err != nil {
-		logrus.WithField("appCoinAddr", coin).
-			WithError(err).
-			Info("Failed to get APP coin contract owner")
+		logrus.WithFields(logrus.Fields{
+			"app":     app,
+			"address": address,
+		}).WithError(err).Info("Failed to get APP balance")
 
-		return nil, errors.WithMessage(err, "failed to get APP coin contract owner")
+		return nil, errors.WithMessage(err, "failed to get APP balance")
 	}
 
-	return &appCoinOwner, nil
+	return big.NewInt(0).Add(depositAmount, airdropAmount), nil
 }
 
-// GetAppCoinConfigPendingSeconds gets APP coin config for pending seconds
-func (p *Provider) GetAppConfigPendingSeconds(callOpts *bind.CallOpts, coin common.Address) (*big.Int, error) {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetApiWeightTokenPendingSeconds gets pending delay seconds for `ApiWeightToken` resources.
+func (p *Provider) GetApiWeightTokenPendingSeconds(callOpts *bind.CallOpts, awtAddr common.Address) (*big.Int, error) {
+	awtContract, err := p.GetApiWeightTokenContract(awtAddr)
 	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get APP coin contract")
+		return nil, errors.WithMessage(err, "failed to get `ApiWeightToken` contract")
 	}
 
-	return appCoinContract.PendingSeconds(callOpts)
+	return awtContract.PendingSeconds(callOpts)
 }
 
-// ListTrackedAppCoins lists all tracked APP coin contracts.
-func (p *Provider) ListTrackedAppCoins(callOpts *bind.CallOpts) ([]common.Address, error) {
-	var appCoinAddrs []common.Address
+// ListTrackedApps lists all tracked APP contracts.
+func (p *Provider) ListTrackedApps(callOpts *bind.CallOpts) (apps, apiWeightTokens, vipCoins []common.Address, err error) {
+	err = p.IterateTrackedApps(callOpts, func(app common.Address) error {
+		awt, err := p.GetAppApiWeightToken(callOpts, app)
+		if err != nil {
+			return errors.WithMessage(err, "failed to get App `ApiWeightToken`")
+		}
 
-	err := p.IterateTrackedAppCoins(callOpts, func(coin common.Address) error {
-		appCoinAddrs = append(appCoinAddrs, coin)
+		vc, err := p.GetAppVipCoin(callOpts, app)
+		if err != nil {
+			return errors.WithMessage(err, "failed to get App `VipCoin`")
+		}
+
+		apps = append(apps, app)
+		apiWeightTokens = append(apiWeightTokens, awt)
+		vipCoins = append(vipCoins, vc)
+
 		return nil
 	})
 
-	return appCoinAddrs, err
+	return
 }
 
-// GetAppCoinResources gets concerned APP coin resources with specified id.
-func (p *Provider) GetAppCoinResources(
-	callOpts *bind.CallOpts, coin common.Address) (map[string]contract.AppConfigConfigEntry, error) {
-	appResources := make(map[string]contract.AppConfigConfigEntry)
-
-	// iterate all resources under APP coin
-	err := p.IterateAppCoinResources(callOpts, coin, func(confEntry contract.AppConfigConfigEntry) (bool, error) {
-		appResources[confEntry.ResourceId] = confEntry
-		return false, nil
-	})
-
-	if err != nil {
-		logrus.WithField("appCoin", coin).
-			WithError(err).
-			Info("Failed to get APP coin resources")
-
-		return nil, errors.WithMessage(err, "failed to get APP coin resources")
-	}
-
-	return appResources, nil
-}
-
-// IterateTrackedAppCoins iterates all tracked APP coin contracts.
-func (p *Provider) IterateTrackedAppCoins(
+// IterateTrackedApps iterates all tracked APP contracts.
+func (p *Provider) IterateTrackedApps(
 	callOpts *bind.CallOpts, iterator func(common.Address) error) error {
-	if p.CreatorAddr != nil {
-		return p.iterateControllerAppCoins(callOpts, iterator, *p.CreatorAddr)
+	if p.OwnerAddr != nil {
+		return p.iterateAppRegistryApps(callOpts, iterator, *p.OwnerAddr)
 	}
 
-	return p.iterateControllerAppCoins(callOpts, iterator)
+	return p.iterateAppRegistryApps(callOpts, iterator)
 }
 
-// iterateControllerAppCoins iterates all APP coin contracts created by controller contracts filtered by creator.
-func (p *Provider) iterateControllerAppCoins(
-	callOpts *bind.CallOpts, iterator func(common.Address) error, creators ...common.Address) error {
+// iterateAppRegistryApps iterates all APP contracts created within registry filtered by owner.
+func (p *Provider) iterateAppRegistryApps(
+	callOpts *bind.CallOpts, iterator func(common.Address) error, owners ...common.Address) error {
 	for offset := int64(0); ; {
-		var appContractAddrs []common.Address
+		var appInfos []contract.AppRegistryAppInfo
 		var total *big.Int
 		var listErr error
 
-		if len(creators) > 0 {
-			appInfos, err := p.controller.ListAppByCreator(
-				callOpts, creators[0], uint32(offset), big.NewInt(int64(defaultListAppPageSize)),
+		if len(owners) > 0 {
+			total, appInfos, listErr = p.appRegistry.ListByOwner(
+				callOpts, owners[0], big.NewInt(offset), big.NewInt(defaultListAppPageSize),
 			)
-
-			if listErr = err; listErr == nil {
-				total = appInfos.Total
-				for i := range appInfos.Apps {
-					appContractAddrs = append(appContractAddrs, appInfos.Apps[i].Addr)
-				}
-			}
 		} else {
-			appContractAddrs, total, listErr = p.controller.ListApp(
+			total, appInfos, listErr = p.appRegistry.List(
 				callOpts, big.NewInt(offset), big.NewInt(int64(defaultListAppPageSize)),
 			)
 		}
 
 		if listErr != nil {
-			logrus.WithField("filterCreator", creators).
-				WithError(listErr).
-				Info("Failed to list APP contracts by controller")
+			logrus.WithField("filterOwner", owners).WithError(listErr).Info("Failed to list APPs within registry")
 			return errors.WithMessage(listErr, "failed to list APP contracts")
 		}
 
-		for i := range appContractAddrs {
-			if err := iterator(appContractAddrs[i]); err != nil {
+		for i := range appInfos {
+			if err := iterator(appInfos[i].Addr); err != nil {
 				logrus.WithFields(logrus.Fields{
-					"filterCreator": creators, "appContractAddr": appContractAddrs[i],
-				}).WithError(listErr).Info("Failed to iterate APP contracts by controller")
+					"filterOwners":    owners,
+					"appContractAddr": appInfos[i],
+				}).WithError(listErr).Info("Failed to iterate APP contracts within registry")
 				return errors.WithMessage(err, "failed to iterate APP contract")
 			}
 		}
 
-		offset += int64(len(appContractAddrs))
+		offset += int64(len(appInfos))
 		if offset >= total.Int64() { // all done
 			break
 		}
@@ -405,34 +422,49 @@ func (p *Provider) iterateControllerAppCoins(
 	return nil
 }
 
-// IterateAppCoinResources iterates all resource under specified APP coin.
-func (p *Provider) IterateAppCoinResources(
-	callOpts *bind.CallOpts, coin common.Address, iterator func(confEntry contract.AppConfigConfigEntry) (bool, error),
-) error {
-	appCoinContract, err := p.GetAppCoinContract(coin)
+// GetApiWeightTokenResources gets `ApiWeightToken` config resources.
+func (p *Provider) GetApiWeightTokenResources(
+	callOpts *bind.CallOpts, awtAddr common.Address) (map[string]contract.IAppConfigConfigEntry, error) {
+	appResources := make(map[string]contract.IAppConfigConfigEntry)
+
+	// iterate all resources under specified `ApiWeightToken` contract
+	err := p.IterateApiWeightTokenResources(callOpts, awtAddr, func(confEntry contract.IAppConfigConfigEntry) (bool, error) {
+		appResources[confEntry.ResourceId] = confEntry
+		return false, nil
+	})
+
 	if err != nil {
-		return errors.WithMessage(err, "failed to get APP coin contract")
+		logrus.WithField("apiWeightToken", awtAddr).WithError(err).Info("Failed to get config resources")
+		return nil, errors.WithMessage(err, "failed to get config resources")
+	}
+
+	return appResources, nil
+}
+
+// IterateApiWeightTokenResources iterates all resources under specified `ApiWeightToken`
+func (p *Provider) IterateApiWeightTokenResources(
+	callOpts *bind.CallOpts, awtAddr common.Address, iterator func(confEntry contract.IAppConfigConfigEntry) (bool, error),
+) error {
+	awtContract, err := p.GetApiWeightTokenContract(awtAddr)
+	if err != nil {
+		return errors.WithMessage(err, "failed to get `ApiWeightToken` contract")
 	}
 
 	for offset := int64(0); ; {
-		configEntries, total, err := appCoinContract.ListResources(
+		configEntries, total, err := awtContract.ListResources(
 			callOpts, big.NewInt(offset), big.NewInt(int64(defaultListResourcePageSize)),
 		)
 
 		if err != nil {
-			logrus.WithField("coin", coin).
-				WithError(err).
-				Info("Failed to list resources for APP coin")
-			return errors.WithMessage(err, "failed to list resources")
+			logrus.WithField("apiWeightToken", awtAddr).WithError(err).Info("Failed to list APP config resources")
+			return errors.WithMessage(err, "failed to list config resources")
 		}
 
 		for i := range configEntries {
 			interrupt, err := iterator(configEntries[i])
 			if err != nil {
-				logrus.WithField("coin", coin).
-					WithError(err).
-					Info("Failed to iterate APP coin resource")
-				return errors.WithMessage(err, "failed to iterate resource")
+				logrus.WithField("apiWeightToken", awtAddr).WithError(err).Info("Failed to iterate APP config resource")
+				return errors.WithMessage(err, "failed to iterate config resource")
 			}
 
 			if interrupt {

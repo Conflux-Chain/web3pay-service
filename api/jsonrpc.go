@@ -22,7 +22,7 @@ type JrBillingApi struct {
 // {"jsonrpc":"2.0","method":"web3pay.Bill","params":[{ "dryRun": true, "resourceId": "default"}],"id":1}
 func (api *JrBillingApi) Bill(r *http.Request, args *service.BillingRequest, reply **model.BusinessError) error {
 	ctx := r.Context()
-	args.AppCoin = contractAddrFromContext(ctx)
+	args.App = contractAddrFromContext(ctx)
 	args.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{
@@ -54,7 +54,7 @@ func (api *JrBillingApi) Bill(r *http.Request, args *service.BillingRequest, rep
 // {"jsonrpc":"2.0","method":"web3pay.BillBatch","params":[{ "dryRun": true, "resourceUses": {"default":1}}],"id":1}
 func (api *JrBillingApi) BillBatch(r *http.Request, args *service.BillingBatchRequest, reply **model.BusinessError) error {
 	ctx := r.Context()
-	args.AppCoin = contractAddrFromContext(ctx)
+	args.App = contractAddrFromContext(ctx)
 	args.Customer = customerAddrFromContext(ctx)
 
 	logger := logrus.WithFields(logrus.Fields{

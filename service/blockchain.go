@@ -27,32 +27,32 @@ const (
 )
 
 type BlockchainService struct {
-	sigAddrCache              *lru.Cache // sha3(sig) => addr
-	sqliteStore               *sqlite.SqliteStore
-	memStore                  *memdb.MemStore
-	provider                  *blockchain.Provider
-	appCoinBaseMap            map[common.Address]AppCoinBase
-	appCoinMutex              sync.Mutex
-	appCoinStatusConfirmQueue chan [2]common.Address
-	workerPool                *workerpool.WorkerPool
-	delayQueue                *myqueue.DelayQueue
-	depositTxnHashCache       *cache.Cache
+	sigAddrCache                 *lru.Cache // sha3(sig) => addr
+	sqliteStore                  *sqlite.SqliteStore
+	memStore                     *memdb.MemStore
+	provider                     *blockchain.Provider
+	appBaseMap                   map[common.Address]AppBase
+	appMutex                     sync.Mutex
+	appAccountStatusConfirmQueue chan [2]common.Address
+	workerPool                   *workerpool.WorkerPool
+	delayQueue                   *myqueue.DelayQueue
+	depositTxnHashCache          *cache.Cache
 }
 
 func NewBlockchainService(
 	sqliteStore *sqlite.SqliteStore, memStore *memdb.MemStore, provider *blockchain.Provider,
 ) (*BlockchainService, error) {
 	bs := &BlockchainService{
-		provider:                  provider,
-		sqliteStore:               sqliteStore,
-		memStore:                  memStore,
-		appCoinBaseMap:            make(map[common.Address]AppCoinBase),
-		appCoinStatusConfirmQueue: make(chan [2]common.Address, statusConfirmQueueSize),
-		workerPool:                workerpool.New(workerPoolSize),
-		delayQueue:                myqueue.NewDelayQueue(delayQueueSize),
+		provider:                     provider,
+		sqliteStore:                  sqliteStore,
+		memStore:                     memStore,
+		appBaseMap:                   make(map[common.Address]AppBase),
+		appAccountStatusConfirmQueue: make(chan [2]common.Address, statusConfirmQueueSize),
+		workerPool:                   workerpool.New(workerPoolSize),
+		delayQueue:                   myqueue.NewDelayQueue(delayQueueSize),
 
 		// Create a deposit transaction hash cache with a default expiration time of 5 minutes,
-		// and which purges expired items every 10 minutes
+		// and purges expired items every 10 minutes
 		depositTxnHashCache: cache.New(5*time.Minute, 10*time.Minute),
 	}
 
@@ -62,7 +62,7 @@ func NewBlockchainService(
 	}
 	bs.sigAddrCache = lruCache
 
-	if err := bs.initAppCoins(); err != nil {
+	if err := bs.initApps(); err != nil {
 		return nil, errors.WithMessage(err, "failed to initialize APP coins")
 	}
 

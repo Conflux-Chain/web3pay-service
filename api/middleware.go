@@ -165,15 +165,15 @@ func AuthMiddleware(r *mux.Router, chainSvc *service.BlockchainService, handler 
 				return
 			}
 
-			// authenticate contract owner
-			ownerAddr, err := chainSvc.RecoverAddressBySignature(billingKey.Msg, billingKey.Sig)
+			// authenticate contract operator
+			opAddr, err := chainSvc.RecoverAddressBySignature(billingKey.Msg, billingKey.Sig)
 			if err != nil {
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}
 
-			contract, owner := common.HexToAddress(billingKey.Msg), common.HexToAddress(ownerAddr)
-			if err := chainSvc.ValidateAppCoinOwner(contract, owner); err != nil {
+			contract, op := common.HexToAddress(billingKey.Msg), common.HexToAddress(opAddr)
+			if err := chainSvc.ValidateAppOperator(contract, op); err != nil {
 				handler(ctx, w, model.ErrAuth.WithData(err.Error()))
 				return
 			}

@@ -46,10 +46,10 @@ api:
 
 # Blockchain Configurations
 blockchain:
-  # Controller contract address from where to retrieve list of tracking APP coins (mandatory).
-  controllerContractAddr:
-  # Creator address used to filter APP coins to be tracked (optional).
-  creatorAddr:
+  # AppRegistry contract address from where to retrieve list of tracking APP coins (mandatory).
+  appRegistryContractAddr:
+  # Owner address used to filter APP(s) to be tracked (optional).
+  OwnerAddr:
   # Operator private key used to sign transaction for billing charge (mandatory).
   operatorPrivateKey:
   # delay config execution interval

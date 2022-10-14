@@ -9,62 +9,105 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (m *Monitor) handleAirdropEvent(log *types.Log) (bool, error) {
-	airdropAbi, err := contract.AirdropMetaData.GetAbi()
+func (m *Monitor) handleVipCoinEvent(log *types.Log) (bool, error) {
+	vcAbi, err := contract.VipCoinMetaData.GetAbi()
 	if err != nil {
-		return false, errors.WithMessage(err, "failed to get airdrop contract ABI")
+		return false, errors.WithMessage(err, "failed to get `VipCoin` contract ABI")
 	}
 
-	// `Drop` event concerned only
-	airdropDropEventId := airdropAbi.Events[contract.EventAirdropDrop].ID
-	if log.Topics[0] != airdropDropEventId {
+	// `TransferSingle` event concerned only
+	tsEventId := vcAbi.Events[contract.EventVipCoinTransferSingle].ID
+	if log.Topics[0] != tsEventId {
 		return false, nil
 	}
 
-	eventAirdropDrop, err := contract.UnpackAirdropDrop(airdropAbi, log)
-	if err != nil {
+	if err := m.handleVipCoinTransferSingle(vcAbi, log); err != nil {
 		return false, err
 	}
 
-	logger := logrus.WithFields(logrus.Fields{
-		"airdropTo": eventAirdropDrop.To,
-		"Amount":    eventAirdropDrop.Amount.Int64(),
-		"Reason":    eventAirdropDrop.Reason,
-	})
-
-	if err := m.contractEventObserver.OnDrop(eventAirdropDrop, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle airdrop event")
-		return false, err
-	}
-
-	logger.Debug("Monitor handled airdrop event")
 	return true, nil
 }
 
-func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
-	appCoinAbi, err := contract.APPCoinMetaData.GetAbi()
+func (m *Monitor) handleVipCoinTransferSingle(vcAbi *abi.ABI, log *types.Log) error {
+	eventTransfer, err := contract.UnpackVipCoinTransferSingle(vcAbi, log)
 	if err != nil {
-		return false, errors.WithMessage(err, "failed to get APP coin contract ABI")
+		return err
+	}
+
+	logger := logrus.WithFields(logrus.Fields{
+		"from":  eventTransfer.From,
+		"to":    eventTransfer.To,
+		"id":    eventTransfer.Id.Int64(),
+		"value": eventTransfer.Value.Int64(),
+	})
+
+	if err := m.contractEventObserver.OnTransfer(eventTransfer, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle VipCoin transfer event")
+		return err
+	}
+
+	logger.Debug("Monitor handled VipCoin transfer event")
+	return nil
+}
+
+func (m *Monitor) handleApiWeightTokenEvent(log *types.Log) (bool, error) {
+	awtAbi, err := contract.ApiWeightTokenMetaData.GetAbi()
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to get `ApiWeightToken` contract ABI")
+	}
+
+	// `ResourceChanged` event concerned only
+	resrcChangedEventId := awtAbi.Events[contract.EventApiTokenWeightResourceChanged].ID
+	if log.Topics[0] != resrcChangedEventId {
+		return false, nil
+	}
+
+	if err := m.handleApiTokenWeightResourceChanged(awtAbi, log); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (m *Monitor) handleApiTokenWeightResourceChanged(awtAbi *abi.ABI, log *types.Log) error {
+	eventResrcChanged, err := contract.UnpackApiWeightTokenResourceChanged(awtAbi, log)
+	if err != nil {
+		return err
+	}
+
+	logger := logrus.WithFields(logrus.Fields{
+		"resourceId":     eventResrcChanged.Id,
+		"resourceWeight": eventResrcChanged.Weight.Int64(),
+		"Op":             eventResrcChanged.Op,
+	})
+
+	if err := m.contractEventObserver.OnResourceChanged(eventResrcChanged, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP config resource changed event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP config resource changed event")
+	return nil
+}
+
+func (m *Monitor) handleAppEvent(log *types.Log) (bool, error) {
+	appAbi, err := contract.AppMetaData.GetAbi()
+	if err != nil {
+		return false, errors.WithMessage(err, "failed to get App contract ABI")
 	}
 
 	switch log.Topics[0] {
-	case appCoinAbi.Events[contract.EventAppCoinTransferSingle].ID:
-		// transfer
-		err = m.handleAppCoinTransferSingle(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinFrozen].ID:
-		// frozen
-		err = m.handleAppCoinFrozen(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCointWithdraw].ID:
+	case appAbi.Events[contract.EventAppDeposit].ID:
+		// deposit
+		err = m.handleAppDeposit(appAbi, log)
+	case appAbi.Events[contract.EventAppWithdraw].ID:
 		// withdraw
-		err = m.handleAppCoinWithdraw(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppCoinResourceChanged].ID:
-		// resource changed
-		err = m.handleAppCoinResourceChanged(appCoinAbi, log)
-	case appCoinAbi.Events[contract.EventAppOwnerChanged].ID:
-		// owner changed
-		err = m.handleAppOwnerChanged(appCoinAbi, log)
-	default: // maybe airdrop event?
-		return m.handleAirdropEvent(log)
+		err = m.handleAppWithdraw(appAbi, log)
+	case appAbi.Events[contract.EventAppFrozen].ID:
+		// frozen
+		err = m.handleAppFrozen(appAbi, log)
+	default:
+		return false, nil
 	}
 
 	if err != nil {
@@ -74,155 +117,125 @@ func (m *Monitor) handleAppCoinEvent(log *types.Log) (bool, error) {
 	return true, nil
 }
 
-func (m *Monitor) handleAppCoinResourceChanged(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinResrcChanged, err := contract.UnpackAppCoinResourceChanged(appCoinAbi, log)
+func (m *Monitor) handleAppFrozen(appAbi *abi.ABI, log *types.Log) error {
+	eventAppFrozen, err := contract.UnpackAppFrozen(appAbi, log)
+	if err != nil {
+		return err
+	}
+
+	logger := logrus.WithField("frozenAccount", eventAppFrozen.Account)
+
+	if err := m.contractEventObserver.OnFrozen(eventAppFrozen, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP frozen event")
+		return err
+	}
+
+	logger.Debug("Monitor handled APP frozen event")
+	return nil
+}
+
+func (m *Monitor) handleAppWithdraw(appAbi *abi.ABI, log *types.Log) error {
+	eventAppWithdraw, err := contract.UnpackAppWithdraw(appAbi, log)
 	if err != nil {
 		return err
 	}
 
 	logger := logrus.WithFields(logrus.Fields{
-		"resourceId":     eventAppCoinResrcChanged.Id,
-		"resourceWeight": eventAppCoinResrcChanged.Weight.Int64(),
-		"Op":             eventAppCoinResrcChanged.Op,
+		"withdrawOperator": eventAppWithdraw.Operator,
+		"withdrawReceiver": eventAppWithdraw.Receiver,
+		"withdrawAccount":  eventAppWithdraw.Account,
+		"withdrawAmount":   eventAppWithdraw.Amount.Int64(),
 	})
 
-	if err := m.contractEventObserver.OnResourceChanged(eventAppCoinResrcChanged, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin resource changed event")
+	if err := m.contractEventObserver.OnWithdraw(eventAppWithdraw, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP withdraw event")
 		return err
 	}
 
-	logger.Debug("Monitor handled APP coin resource changed event")
+	logger.Debug("Monitor handled APP withdraw event")
 	return nil
 }
 
-func (m *Monitor) handleAppOwnerChanged(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppOwnerChanged, err := contract.UnpackAPPCoinAppOwnerChanged(appCoinAbi, log)
+func (m *Monitor) handleAppDeposit(appAbi *abi.ABI, log *types.Log) error {
+	eventAppDeposit, err := contract.UnpackAppDeposit(appAbi, log)
 	if err != nil {
 		return err
 	}
 
 	logger := logrus.WithFields(logrus.Fields{
-		"appCoinContract": log.Address,
-		"newOwner":        eventAppOwnerChanged.To,
+		"depositOperator": eventAppDeposit.Operator,
+		"depositReceiver": eventAppDeposit.Receiver,
+		"depositAmount":   eventAppDeposit.Amount.Int64(),
+		"tokenID":         eventAppDeposit.TokenId.Int64(),
 	})
 
-	if err := m.contractEventObserver.OnAppOwnerChanged(eventAppOwnerChanged, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin owner changed event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin owner changed event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinWithdraw(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinWithdraw, err := contract.UnpackAppCoinWithdraw(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithFields(logrus.Fields{
-		"withdrawAccount": eventAppCoinWithdraw.Account,
-		"withdrawAmount":  eventAppCoinWithdraw.Amount.Int64(),
-	})
-
-	if err := m.contractEventObserver.OnWithdraw(eventAppCoinWithdraw, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin withdraw event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APP coin withdraw event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinFrozen(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinFrozen, err := contract.UnpackAppCoinFrozen(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	logger := logrus.WithField("frozenAddress", eventAppCoinFrozen.Addr)
-
-	if err := m.contractEventObserver.OnFrozen(eventAppCoinFrozen, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APPCoin frozen event")
-		return err
-	}
-
-	logger.Debug("Monitor handled APPCoin frozen event")
-	return nil
-}
-
-func (m *Monitor) handleAppCoinTransferSingle(appCoinAbi *abi.ABI, log *types.Log) error {
-	eventAppCoinTransfer, err := contract.UnpackAPPCoinTransferSingle(appCoinAbi, log)
-	if err != nil {
-		return err
-	}
-
-	if !util.IsZeroAddress(eventAppCoinTransfer.From) &&
-		!util.IsZeroAddress(eventAppCoinTransfer.To) { // not a minted event or burnt event?
+	if util.IsZeroAddress(eventAppDeposit.Receiver) { // receiver address must not be zero
+		logger.Debug("Monitor skipped APP deposit event due to zero receiver")
 		return nil
 	}
 
-	logger := logrus.WithFields(logrus.Fields{
-		"transferOperator": eventAppCoinTransfer.Operator,
-		"transferFrom":     eventAppCoinTransfer.From,
-		"transferTo":       eventAppCoinTransfer.To,
-		"transferId":       eventAppCoinTransfer.Id,
-		"transferValue":    eventAppCoinTransfer.Value.Int64(),
-	})
-
-	if err := m.contractEventObserver.OnTransfer(eventAppCoinTransfer, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APP coin transfer event")
+	if err := m.contractEventObserver.OnDeposit(eventAppDeposit, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle APP deposit event")
 		return err
 	}
 
-	logger.Debug("Monitor handled APP coin transfer event")
+	logger.Debug("Monitor handled APP deposit event")
 	return nil
 }
 
-func (m *Monitor) handleControllerEvent(log *types.Log) (bool, error) {
-	controllerAbi, err := contract.ControllerMetaData.GetAbi()
+func (m *Monitor) handleAppRegistryEvent(log *types.Log) (bool, error) {
+	appRegistryAbi, err := contract.AppRegistryMetaData.GetAbi()
 	if err != nil {
-		return false, errors.WithMessage(err, "failed to get controller contract ABI")
+		return false, errors.WithMessage(err, "failed to get APP registry contract ABI")
 	}
 
-	// `APP_CREATED` event concerned only
-	appCreatedEventId := controllerAbi.Events[contract.EventControllerAppCreated].ID
-	if log.Topics[0] != appCreatedEventId {
+	// `Created` event concerned only
+	createdEventId := appRegistryAbi.Events[contract.EventAppRegistryCreated].ID
+	if log.Topics[0] != createdEventId {
 		return false, nil
 	}
 
-	eventAppCreated, err := contract.UnpackControllerAPPCREATED(controllerAbi, log)
+	return m.handleAppRegistryCreated(appRegistryAbi, log)
+}
+
+func (m *Monitor) handleAppRegistryCreated(appRegistryAbi *abi.ABI, log *types.Log) (bool, error) {
+	eventCreated, err := contract.UnpackAppRegistryCreated(appRegistryAbi, log)
 	if err != nil {
 		return false, err
 	}
 
 	logger := logrus.WithFields(logrus.Fields{
-		"AppCoin": eventAppCreated.Addr, "AppCoinOwner": eventAppCreated.AppOwner,
+		"App":            eventCreated.App,
+		"Operator":       eventCreated.Operator,
+		"Owner":          eventCreated.Owner,
+		"ApiWeightToken": eventCreated.ApiWeightToken,
+		"VipCoin":        eventCreated.VipCoin,
 	})
 
-	if m.FilterCreatorAddress != nil && *m.FilterCreatorAddress != eventAppCreated.AppOwner {
-		// not an APP coin by concerned creator
-		logger.Debug("Monitor skipped APPCreated event due to not a concerned APP coin creator")
+	if m.FilterOwnerAddress != nil && *m.FilterOwnerAddress != eventCreated.Owner {
+		// not an APP by concerned owner
+		logger.Debug("Monitor skipped `AppRegistryCreated` event due to not of concerned owner")
 		return false, nil
 	}
 
-	// add observing for new created APP coin
-	for i := range m.AppCoinAddresses {
-		if m.AppCoinAddresses[i] == eventAppCreated.Addr { // already exists?
-			logger.Debug("Monitor skipped APPCreated event due to already existed")
+	// add observing for new created APP
+	for i := range m.AppAddresses {
+		if m.AppAddresses[i] == eventCreated.App { // already exists?
+			logger.Debug("Monitor skipped `AppRegistryCreated` event due to APP already existed")
 			return false, nil
 		}
 	}
 
-	m.AppCoinAddresses = append(m.AppCoinAddresses, eventAppCreated.Addr)
+	m.AppAddresses = append(m.AppAddresses, eventCreated.App)
+	m.ApiWeightTokens = append(m.ApiWeightTokens, eventCreated.ApiWeightToken)
+	m.VipCoins = append(m.VipCoins, eventCreated.VipCoin)
 
-	if err := m.contractEventObserver.OnAppCreated(eventAppCreated, log); err != nil {
-		logger.WithError(err).Info("Monitor failed to handle APPCreated event")
+	if err := m.contractEventObserver.OnAppCreated(eventCreated, log); err != nil {
+		logger.WithError(err).Info("Monitor failed to handle `AppRegistryCreated` event")
 		return false, err
 	}
 
-	logger.Debug("Monitor handled APPCreated event")
+	logger.Debug("Monitor handled `AppRegistryCreated` event")
 	return true, nil
 }
 

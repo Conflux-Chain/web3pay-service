@@ -9,18 +9,19 @@ import (
 )
 
 type ContractEventObserver interface {
-	// controller
-	OnAppCreated(event *contract.ControllerAPPCREATED, rawlog *types.Log) error
-	// app coin
-	OnTransfer(event *contract.APPCoinTransferSingle, rawlog *types.Log) error
-	OnFrozen(event *contract.APPCoinFrozen, rawlog *types.Log) error
-	OnWithdraw(event *contract.APPCoinWithdraw, rawlog *types.Log) error
-	OnResourceChanged(event *contract.APPCoinResourceChanged, rawlog *types.Log) error
-	OnAppOwnerChanged(event *contract.APPCoinAppOwnerChanged, rawlog *types.Log) error
-	StatusConfirmQueue() <-chan [2]common.Address // [coin, addr]
-	OnConfirmStatus(coin, addr common.Address, balance *big.Int, frozen, block int64) error
-	// airdrop
-	OnDrop(event *contract.AirdropDrop, rawlog *types.Log) error
+	// APP registry
+	OnAppCreated(event *contract.AppRegistryCreated, rawlog *types.Log) error
+	// App
+	OnDeposit(event *contract.AppDeposit, rawlog *types.Log) error
+	OnWithdraw(event *contract.AppWithdraw, rawlog *types.Log) error
+	OnFrozen(event *contract.AppFrozen, rawlog *types.Log) error
+	// ApiWeightToken
+	OnResourceChanged(event *contract.ApiWeightTokenResourceChanged, rawlog *types.Log) error
+	// VipCoin
+	OnTransfer(event *contract.VipCoinTransferSingle, rawlog *types.Log) error
+	// confirmation
+	StatusConfirmQueue() <-chan [2]common.Address // [app, addr]
+	OnConfirmStatus(app, addr common.Address, balance *big.Int, frozen, block int64) error
 	// reorg revert
 	OnReorgRevert(revertToBlock int64) error
 }

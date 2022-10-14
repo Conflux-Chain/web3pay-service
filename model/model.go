@@ -18,10 +18,10 @@ const (
 // Bill bills to settle on blockchain
 type Bill struct {
 	ID uint64
-	// APP coin contract address
-	Coin string `gorm:"size:64;not null;index:idx_coin_addr,priority:1"`
+	// APP contract address
+	App string `gorm:"size:64;not null;index:idx_app_addr,priority:1"`
 	// account address
-	Address string `gorm:"size:64;not null;index:idx_coin_addr,priority:2"`
+	Address string `gorm:"size:64;not null;index:idx_app_addr,priority:2"`
 	// total deduction fee
 	Fee decimal.Decimal `gorm:"size:128;type:string"`
 	// 0 - created, 1 - submitting, 2 - submitted
@@ -41,9 +41,9 @@ var All = []interface{}{
 	&Bill{},
 }
 
-type AppCoinAccount struct {
-	// APP coin contract address
-	Coin string
+type AppAccount struct {
+	// APP contract address
+	App string
 	// account address
 	Address string
 	// frozen status, 0 means not frozen
@@ -56,9 +56,9 @@ type AppCoinAccount struct {
 	ConfirmedBlock int64
 }
 
-func NewAppCoinAccount(coin, address string, frozen int64, balance *big.Int) *AppCoinAccount {
-	account := AppCoinAccount{
-		Coin:           coin,
+func NewAppAccount(app, address string, frozen int64, balance *big.Int) *AppAccount {
+	account := AppAccount{
+		App:            app,
 		Address:        address,
 		Frozen:         frozen,
 		Balance:        decimal.NewFromBigInt(balance, 0),
@@ -69,24 +69,24 @@ func NewAppCoinAccount(coin, address string, frozen int64, balance *big.Int) *Ap
 	return &account
 }
 
-func (account *AppCoinAccount) TotalBalance() *big.Int {
+func (account *AppAccount) TotalBalance() *big.Int {
 	res := account.Balance.Sub(account.Fee)
 	return res.BigInt()
 }
 
-func (account *AppCoinAccount) IsFrozen() bool {
+func (account *AppAccount) IsFrozen() bool {
 	return account.Frozen > 0
 }
 
-func (account *AppCoinAccount) IsConfirmed() bool {
+func (account *AppAccount) IsConfirmed() bool {
 	return account.ConfirmedBlock != math.MaxInt64
 }
 
-func (account *AppCoinAccount) IncreaseFee(delta *big.Int) {
+func (account *AppAccount) IncreaseFee(delta *big.Int) {
 	account.Fee = account.Fee.Add(decimal.NewFromBigInt(delta, 0))
 }
 
-func (account *AppCoinAccount) DecreaseFee(delta *big.Int) bool {
+func (account *AppAccount) DecreaseFee(delta *big.Int) bool {
 	deltaD := decimal.NewFromBigInt(delta, 0)
 	newFee, overflow := decreasePositiveDecimal(account.Fee, deltaD)
 	account.Fee = newFee
@@ -94,11 +94,11 @@ func (account *AppCoinAccount) DecreaseFee(delta *big.Int) bool {
 	return overflow
 }
 
-func (account *AppCoinAccount) IncreaseBalance(delta *big.Int) {
+func (account *AppAccount) IncreaseBalance(delta *big.Int) {
 	account.Balance = account.Balance.Add(decimal.NewFromBigInt(delta, 0))
 }
 
-func (account *AppCoinAccount) DecreaseBalance(delta *big.Int) bool {
+func (account *AppAccount) DecreaseBalance(delta *big.Int) bool {
 	deltaD := decimal.NewFromBigInt(delta, 0)
 	newBalance, overflow := decreasePositiveDecimal(account.Balance, deltaD)
 	account.Balance = newBalance

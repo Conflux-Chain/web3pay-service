@@ -27,13 +27,15 @@ var (
 )
 
 type monitorConfig struct {
-	ControllerAddress    common.Address   // controller contract
-	FilterCreatorAddress *common.Address  // filtering APP coin creator
-	AppCoinAddresses     []common.Address // APP coin contract list
-	SyncFromBlockNumber  int64            // the block number to start sync from
-	SyncIntervalNormal   time.Duration    // interval to sync data in normal status
-	SyncIntervalCatchUp  time.Duration    // interval to sync data in catching up mode
-	UseFastCatchUp       bool             // whether to use fast catchup
+	AppRegistryAddress  common.Address   // APP registry contract address
+	FilterOwnerAddress  *common.Address  // filtering APP owner
+	AppAddresses        []common.Address //  APP contract list
+	ApiWeightTokens     []common.Address // ApiWeightToken list
+	VipCoins            []common.Address // VipCoin list
+	SyncFromBlockNumber int64            // the block number to start sync from
+	SyncIntervalNormal  time.Duration    // interval to sync data in normal status
+	SyncIntervalCatchUp time.Duration    // interval to sync data in catching up mode
+	UseFastCatchUp      bool             // whether to use fast catchup
 }
 
 // Monitor sync blockchain event logs to monitor contract events.
@@ -50,18 +52,20 @@ func MustNewMonitor(config *Config, provider *Provider, eventObserver ContractEv
 		BlockNumber: big.NewInt(refBlockNumber),
 	}
 
-	appCoinAddrs, err := provider.ListTrackedAppCoins(baseCallOpt)
+	appAddrs, awtAddrs, vcAddrs, err := provider.ListTrackedApps(baseCallOpt)
 	if err != nil {
-		logrus.WithError(err).Fatal("Failed to get APP coin list to init monitor")
+		logrus.WithError(err).Fatal("Failed to get APP list to init monitor")
 	}
 
 	monConfig := &monitorConfig{
-		ControllerAddress:    config.ControllerContractAddr,
-		FilterCreatorAddress: config.CreatorAddr,
-		AppCoinAddresses:     appCoinAddrs,
-		SyncFromBlockNumber:  refBlockNumber + 1,
-		SyncIntervalNormal:   syncIntervalNormal,
-		SyncIntervalCatchUp:  syncIntervalCatchUp,
+		AppRegistryAddress:  config.AppRegistryContractAddr,
+		FilterOwnerAddress:  config.OwnerAddr,
+		AppAddresses:        appAddrs,
+		ApiWeightTokens:     awtAddrs,
+		VipCoins:            vcAddrs,
+		SyncFromBlockNumber: refBlockNumber + 1,
+		SyncIntervalNormal:  syncIntervalNormal,
+		SyncIntervalCatchUp: syncIntervalCatchUp,
 	}
 	logrus.WithField("monitorConfig", config).Debug("Monitor config loaded")
 
@@ -198,8 +202,11 @@ func (m *Monitor) catchupOnce(target int64) error {
 	// get event logs
 
 	// build log filters
-	filterAddrs := []common.Address{m.ControllerAddress}
-	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
+	filterAddrs := []common.Address{m.AppRegistryAddress}
+	filterAddrs = append(filterAddrs, m.AppAddresses...)
+	filterAddrs = append(filterAddrs, m.ApiWeightTokens...)
+	filterAddrs = append(filterAddrs, m.VipCoins...)
+
 	logFilter := types.FilterQuery{
 		FromBlock: &start, ToBlock: &end, Addresses: filterAddrs,
 	}
@@ -232,10 +239,16 @@ func (m *Monitor) catchupOnce(target int64) error {
 		// handle contract events
 		var err error
 		switch {
-		case logs[i].Address == m.ControllerAddress: // controller event
-			_, err = m.handleControllerEvent(&logs[i])
-		default: // APP coin or airdrop event
-			_, err = m.handleAppCoinEvent(&logs[i])
+		case m.isAppRegistryEvent(&logs[i]): // `AppRegistry` related event
+			_, err = m.handleAppRegistryEvent(&logs[i])
+		case m.isAppEvent(&logs[i]): // `App` related event
+			_, err = m.handleAppEvent(&logs[i])
+		case m.isApiWeightTokenEvent(&logs[i]): // `ApiWeightToken` related event
+			_, err = m.handleApiWeightTokenEvent(&logs[i])
+		case m.isVipCoinEvent((&logs[i])): // `VipCoin` related event
+			_, err = m.handleVipCoinEvent(&logs[i])
+		default:
+			logrus.WithField("log", logs[i]).Warn("Monitor detected unconcerned event log")
 		}
 
 		if err != nil {
@@ -310,10 +323,11 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 	}
 
 	// build log filters
-	filterAddrs := []common.Address{m.ControllerAddress}
-	filterAddrs = append(filterAddrs, m.AppCoinAddresses...)
+	filterAddrs := []common.Address{m.AppRegistryAddress}
+	filterAddrs = append(filterAddrs, m.AppAddresses...)
+	filterAddrs = append(filterAddrs, m.ApiWeightTokens...)
+	filterAddrs = append(filterAddrs, m.VipCoins...)
 
-	// TODO: filter topics too?
 	logFilter := types.FilterQuery{
 		FromBlock: &syncBlockNum, ToBlock: &syncBlockNum, Addresses: filterAddrs,
 	}
@@ -339,10 +353,16 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 		// handle contract events
 		var err error
 		switch {
-		case logs[i].Address == m.ControllerAddress: // controller event
-			_, err = m.handleControllerEvent(&logs[i])
-		default: // APP coin or airdrop event
-			_, err = m.handleAppCoinEvent(&logs[i])
+		case m.isAppRegistryEvent(&logs[i]): // `AppRegistry` related event
+			_, err = m.handleAppRegistryEvent(&logs[i])
+		case m.isAppEvent(&logs[i]): // `App` related event
+			_, err = m.handleAppEvent(&logs[i])
+		case m.isApiWeightTokenEvent(&logs[i]): // `ApiWeightToken` related event
+			_, err = m.handleApiWeightTokenEvent(&logs[i])
+		case m.isVipCoinEvent((&logs[i])): // `VipCoin` related event
+			_, err = m.handleVipCoinEvent(&logs[i])
+		default:
+			logrus.WithField("log", logs[i]).Warn("Monitor detected unconcerned event log")
 		}
 
 		if err != nil {
@@ -363,26 +383,26 @@ func (m *Monitor) syncOnce(confirmTasks *list.List) (bool, error) {
 }
 
 func (m *Monitor) confirmSubscribedAccountStatus(confirmTasks *list.List) {
-	// Confirm subscribed APP coin account status
+	// Confirm subscribed APP account status
 	baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(m.SyncFromBlockNumber)}
 
 	// TODO: use batch call or multiple call?
 	for v := confirmTasks.Front(); v != nil; {
 		start := time.Now()
 		task := v.Value.([2]common.Address)
-		coin, addr := task[0], task[1]
+		app, addr := task[0], task[1]
 
-		balance, frozen, err := m.provider.GetAppCoinBalanceAndFrozenStatus(baseCallOpt, coin, addr)
+		balance, frozen, err := m.provider.GetAppAccountBalanceAndFrozenStatus(baseCallOpt, app, addr)
 		if err != nil {
 			logrus.WithField("confirmTask", task).
 				WithError(err).
-				Info("Monitor failed to fetch APP coin account status for confirming task")
+				Info("Monitor failed to fetch APP account status for confirming task")
 			metrics.Monitor.ConfirmQps(err).UpdateSince(start)
 			v = v.Next()
 			continue
 		}
 
-		err = m.contractEventObserver.OnConfirmStatus(coin, addr, balance, frozen, m.SyncFromBlockNumber)
+		err = m.contractEventObserver.OnConfirmStatus(app, addr, balance, frozen, m.SyncFromBlockNumber)
 		if err != nil {
 			logrus.WithField("confirmTask", task).
 				WithError(err).
@@ -397,4 +417,30 @@ func (m *Monitor) confirmSubscribedAccountStatus(confirmTasks *list.List) {
 		confirmTasks.Remove(v)
 		v = nv
 	}
+}
+
+func (m *Monitor) isAppRegistryEvent(log *types.Log) bool {
+	return log.Address == m.AppRegistryAddress
+}
+
+func (m *Monitor) isAppEvent(log *types.Log) bool {
+	return inAddressSlice(m.AppAddresses, log.Address)
+}
+
+func (m *Monitor) isApiWeightTokenEvent(log *types.Log) bool {
+	return inAddressSlice(m.ApiWeightTokens, log.Address)
+}
+
+func (m *Monitor) isVipCoinEvent(log *types.Log) bool {
+	return inAddressSlice(m.VipCoins, log.Address)
+}
+
+func inAddressSlice(addrs []common.Address, target common.Address) bool {
+	for _, addr := range addrs {
+		if addr == target {
+			return true
+		}
+	}
+
+	return false
 }

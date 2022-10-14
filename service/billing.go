@@ -20,12 +20,12 @@ const (
 type BillingRequest struct {
 	ResourceId string         `json:"resourceId"`
 	DryRun     bool           `json:"dryRun"`
-	AppCoin    common.Address `json:"-"`
+	App        common.Address `json:"-"`
 	Customer   common.Address `json:"-"`
 }
 
 type BillingReceipt struct {
-	AppCoin      common.Address             `json:"appCoin,omitempty"`
+	App          common.Address             `json:"app,omitempty"`
 	Customer     common.Address             `json:"customer,omitempty"`
 	Balance      string                     `json:"balance,omitempty"`
 	ResourceFees map[string]decimal.Decimal `json:"resourceFees,omitempty"` // resource ID => fee
@@ -34,7 +34,7 @@ type BillingReceipt struct {
 type BillingBatchRequest struct {
 	ResourceUses map[string]int64 `json:"resourceUses"`
 	DryRun       bool             `json:"dryRun"`
-	AppCoin      common.Address   `json:"-"`
+	App          common.Address   `json:"-"`
 	Customer     common.Address   `json:"-"`
 }
 
@@ -61,12 +61,11 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 	statements := make(map[uint32]int64)
 
 	for resourceId, cnt := range req.ResourceUses {
-		resource, err := bs.chainSvc.GetAppCoinResourceWithId(req.AppCoin, resourceId)
+		resource, err := bs.chainSvc.GetAppConfigResourceWithId(req.App, resourceId)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
-				"resourceId": resourceId,
-				"appCoin":    req.AppCoin,
-			}).WithError(err).Debug("Failed to retrieve APP coin resource for billing")
+				"resourceId": resourceId, "app": req.App,
+			}).WithError(err).Debug("Failed to retrieve APP config resource for billing")
 			return nil, err
 		}
 
@@ -85,27 +84,27 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 	})
 
 	// get account status
-	appCoinAccount, err := bs.chainSvc.GetOrFetchAccountStatus(req.AppCoin, req.Customer)
+	appAccount, err := bs.chainSvc.GetOrFetchAppAccountStatus(req.App, req.Customer)
 	if err != nil {
 		logger.WithError(err).Info("Billing failed to get account status")
 		return nil, err
 	}
 
-	logger = logger.WithField("account", appCoinAccount)
+	logger = logger.WithField("account", appAccount)
 	receipt := &BillingReceipt{
-		AppCoin: req.AppCoin, Customer: req.Customer, ResourceFees: resourceCosts,
+		App: req.App, Customer: req.Customer, ResourceFees: resourceCosts,
 	}
 
 	// account frozen?
-	if appCoinAccount.IsFrozen() {
+	if appAccount.IsFrozen() {
 		logger.Debug("Billing skipped due to customer account frozen")
-		return nil, model.ErrAccountAddrFrozen.WithData(receipt)
+		return nil, model.ErrAccountFrozen.WithData(receipt)
 	}
 
-	receipt.Balance = appCoinAccount.TotalBalance().String()
+	receipt.Balance = appAccount.TotalBalance().String()
 
 	// insufficient balance?
-	if appCoinAccount.TotalBalance().Cmp(totalCost.BigInt()) < 0 {
+	if appAccount.TotalBalance().Cmp(totalCost.BigInt()) < 0 {
 		logger.Debug("Billing skipped due to insufficient balance")
 		return nil, model.ErrInsufficentBalance.WithData(receipt)
 	}
@@ -113,24 +112,24 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 	if req.DryRun { // for simulation only?
 		logger.Debug("Billing skipped for dry run")
 		receipt.Balance = big.NewInt(0).
-			Sub(appCoinAccount.TotalBalance(), totalCost.BigInt()).String()
+			Sub(appAccount.TotalBalance(), totalCost.BigInt()).String()
 		return receipt, nil
 	}
 
 	util.KLock(KeyBillingLocker)
 	defer util.KUnlock(KeyBillingLocker)
 
-	coin, addr := appCoinAccount.Coin, appCoinAccount.Address
+	app, addr := appAccount.App, appAccount.Address
 	if err = bs.sqliteStore.Transaction(func(tx *gorm.DB) error {
 		fee := totalCost.BigInt()
 
-		bill, err := bs.sqliteStore.UpsertBill(tx, coin, addr, fee)
+		bill, err := bs.sqliteStore.UpsertBill(tx, app, addr, fee)
 		if err != nil {
 			logger.WithError(err).Error("Billing failed to upsert bill")
 			return err
 		}
 
-		deducted, err := bs.chainSvc.WithholdAccountFee(req.AppCoin, req.Customer, fee)
+		deducted, err := bs.chainSvc.WithholdAccountFee(req.App, req.Customer, fee)
 		if err != nil {
 			logger.WithError(err).Error("Billing failed to withhold account fee")
 			return err
@@ -145,7 +144,7 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 		return nil, err
 	}
 
-	receipt.Balance = appCoinAccount.TotalBalance().String()
+	receipt.Balance = appAccount.TotalBalance().String()
 	return receipt, nil
 }
 
@@ -153,7 +152,7 @@ func (bs *BillingService) Bill(ctx context.Context, req *BillingRequest) (*Billi
 	return bs.BillBatch(ctx, &BillingBatchRequest{
 		ResourceUses: map[string]int64{req.ResourceId: 1},
 		DryRun:       req.DryRun,
-		AppCoin:      req.AppCoin,
+		App:          req.App,
 		Customer:     req.Customer,
 	})
 }

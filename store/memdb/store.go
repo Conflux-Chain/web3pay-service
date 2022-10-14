@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	AppCoinAccountDBName = "account"
+	AppAccountDBName = "account"
 )
 
 var (
@@ -20,15 +20,15 @@ var (
 
 func init() {
 	tblSchemas := map[string]*memdb.TableSchema{
-		AppCoinAccountDBName: {
-			Name: AppCoinAccountDBName,
+		AppAccountDBName: {
+			Name: AppAccountDBName,
 			Indexes: map[string]*memdb.IndexSchema{
 				"id": {
 					Name:   "id",
 					Unique: true,
 					Indexer: &memdb.CompoundIndex{
 						Indexes: []memdb.Indexer{
-							&memdb.StringFieldIndex{Field: "Coin"},
+							&memdb.StringFieldIndex{Field: "App"},
 							&memdb.StringFieldIndex{Field: "Address"},
 						},
 					},
@@ -67,11 +67,11 @@ func (ms *MemStore) Close() error {
 	return nil
 }
 
-func (ms *MemStore) SaveAccountWithTxn(txn *memdb.Txn, account *model.AppCoinAccount) error {
+func (ms *MemStore) SaveAccountWithTxn(txn *memdb.Txn, account *model.AppAccount) error {
 	return txn.Insert("account", account)
 }
 
-func (ms *MemStore) SaveAccount(account *model.AppCoinAccount) error {
+func (ms *MemStore) SaveAccount(account *model.AppAccount) error {
 	txn := ms.Txn(true)
 
 	if err := txn.Insert("account", account); err != nil {
@@ -83,10 +83,10 @@ func (ms *MemStore) SaveAccount(account *model.AppCoinAccount) error {
 	return nil
 }
 
-func (ms *MemStore) DeleteAccount(appCoin, address common.Address) (*model.AppCoinAccount, bool, error) {
-	account, ok, err := ms.GetAccount(appCoin, address)
+func (ms *MemStore) DeleteAccount(app, address common.Address) (*model.AppAccount, bool, error) {
+	account, ok, err := ms.GetAccount(app, address)
 	if err != nil {
-		return nil, false, errors.WithMessage(err, "failed to get APP coin account")
+		return nil, false, errors.WithMessage(err, "failed to get APP account")
 	}
 
 	if !ok {
@@ -103,30 +103,30 @@ func (ms *MemStore) DeleteAccount(appCoin, address common.Address) (*model.AppCo
 	return account, true, nil
 }
 
-func (ms *MemStore) GetAccount(appCoin, address common.Address) (*model.AppCoinAccount, bool, error) {
-	account, err := ms.Txn(false).First("account", "id", appCoin.String(), address.String())
+func (ms *MemStore) GetAccount(app, address common.Address) (*model.AppAccount, bool, error) {
+	account, err := ms.Txn(false).First("account", "id", app.String(), address.String())
 	if err != nil || account == nil {
 		return nil, false, err
 	}
 
-	return account.(*model.AppCoinAccount), true, nil
+	return account.(*model.AppAccount), true, nil
 }
 
 func (ms *MemStore) DeleteAccountsAfterBlock(blockNumber int64) error {
 	txn := ms.Txn(false)
 
 	// range scan over account status with `confirmedBlock` behind block
-	it, err := txn.LowerBound(AppCoinAccountDBName, "block", blockNumber)
+	it, err := txn.LowerBound(AppAccountDBName, "block", blockNumber)
 	if err != nil {
 		logrus.WithField("blockNumber", blockNumber).
 			WithError(err).
-			Error("MemDB failed to get APP coin accounts with lower bound of block number")
+			Error("MemDB failed to get APP accounts with lower bound of block number")
 		return err
 	}
 
-	toDeleteAccounts := []*model.AppCoinAccount{}
+	toDeleteAccounts := []*model.AppAccount{}
 	for obj := it.Next(); obj != nil; obj = it.Next() {
-		account := obj.(*model.AppCoinAccount)
+		account := obj.(*model.AppAccount)
 		toDeleteAccounts = append(toDeleteAccounts, account)
 	}
 
@@ -139,17 +139,17 @@ func (ms *MemStore) DeleteAccountsAfterBlock(blockNumber int64) error {
 
 	var finalErr error
 	for _, account := range toDeleteAccounts {
-		err := txn.Delete(AppCoinAccountDBName, account)
+		err := txn.Delete(AppAccountDBName, account)
 		if err != nil {
 			logrus.WithField("account", *account).
 				WithError(err).
-				Error("MemDB failed to delete APP coin account")
+				Error("MemDB failed to delete APP account")
 			finalErr = multierr.Combine(finalErr, err)
 
 			continue
 		}
 
-		logrus.WithField("account", *account).Debug("MemDB deleted APP coin account")
+		logrus.WithField("account", *account).Debug("MemDB deleted APP account")
 	}
 
 	return finalErr
