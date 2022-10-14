@@ -162,16 +162,17 @@ func (m *Monitor) handleAppDeposit(appAbi *abi.ABI, log *types.Log) error {
 		return err
 	}
 
-	if !util.IsZeroAddress(eventAppDeposit.Receiver) { // receiver address must not be zero
-		return nil
-	}
-
 	logger := logrus.WithFields(logrus.Fields{
 		"depositOperator": eventAppDeposit.Operator,
 		"depositReceiver": eventAppDeposit.Receiver,
 		"depositAmount":   eventAppDeposit.Amount.Int64(),
 		"tokenID":         eventAppDeposit.TokenId.Int64(),
 	})
+
+	if util.IsZeroAddress(eventAppDeposit.Receiver) { // receiver address must not be zero
+		logger.Debug("Monitor skipped APP deposit event due to zero receiver")
+		return nil
+	}
 
 	if err := m.contractEventObserver.OnDeposit(eventAppDeposit, log); err != nil {
 		logger.WithError(err).Info("Monitor failed to handle APP deposit event")

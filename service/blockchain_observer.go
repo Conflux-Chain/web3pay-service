@@ -97,7 +97,7 @@ func (bs *BlockchainService) OnAppCreated(event *contract.AppRegistryCreated, ra
 }
 
 func (bs *BlockchainService) OnDeposit(event *contract.AppDeposit, rawlog *types.Log) error {
-	if event.TokenId.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 || // vip coin
+	if event.TokenId.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 && // vip coin
 		event.TokenId.Cmp(big.NewInt(contract.TokenIdAirdrop)) != 0 { // airdrop
 		return nil
 	}
@@ -114,15 +114,6 @@ func (bs *BlockchainService) OnDeposit(event *contract.AppDeposit, rawlog *types
 }
 
 func (bs *BlockchainService) OnTransfer(event *contract.VipCoinTransferSingle, rawlog *types.Log) error {
-	if event.Id.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 || // vip coin
-		event.Id.Cmp(big.NewInt(contract.TokenIdAirdrop)) != 0 { // airdrop
-		return nil
-	}
-
-	if !util.IsZeroAddress(event.To) { // only burnt event are concerned
-		return nil
-	}
-
 	logger := logrus.WithFields(logrus.Fields{
 		"vipCoin":        rawlog.Address,
 		"accountAddress": event.From,
@@ -130,6 +121,17 @@ func (bs *BlockchainService) OnTransfer(event *contract.VipCoinTransferSingle, r
 		"blockNumber":    rawlog.BlockNumber,
 		"operator":       event.Operator,
 	})
+
+	if event.Id.Cmp(big.NewInt(contract.TokenIdCoin)) != 0 && // vip coin
+		event.Id.Cmp(big.NewInt(contract.TokenIdAirdrop)) != 0 { // airdrop
+		logger.Debug("Blockchain service skipped `OnTransfer` event due to not a VIP or Airdrop coin")
+		return nil
+	}
+
+	if !util.IsZeroAddress(event.To) { // only burnt event are concerned
+		logger.Debug("Blockchain service skipped `OnTransfer` event due to no burnt event")
+		return nil
+	}
 
 	// skip transfer burnt event from transactions initiated by our operator
 	if event.Operator == bs.provider.OperatorAddress() {
@@ -153,7 +155,7 @@ func (bs *BlockchainService) deposit(depositReq *DepositRequest) error {
 	logrus.WithFields(logrus.Fields{
 		"depositRequest": depositReq,
 		"amount":         depositReq.Amount.Int64(),
-	}).WithError(err).Debug("Blockchain service pending deposited balance for `OnTransfer` event")
+	}).WithError(err).Debug("Blockchain service pending deposited balance for `OnDeposit` event")
 	return err
 }
 
