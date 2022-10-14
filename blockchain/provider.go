@@ -149,6 +149,17 @@ func (p *Provider) GetApiWeightTokenContract(awtAddr common.Address) (*contract.
 	return awtCaller, nil
 }
 
+// GetCardShopContract gets `CardShop` contract stub.
+func (p *Provider) GetCardShopContract(csAddr common.Address) (*contract.CardShop, error) {
+	csCaller, err := contract.NewCardShop(csAddr, p.bindCallContext.contractClient)
+	if err != nil {
+		logrus.WithField("cardShop", csAddr).WithError(err).Info("Failed to create `CardShop` contract stub")
+		return nil, err
+	}
+
+	return csCaller, nil
+}
+
 // BatchChargeAppBills batch charges APP bills.
 func (p *Provider) BatchChargeAppBills(
 	opts *bind.TransactOpts, app common.Address, requests []contract.IAppConfigChargeRequest) (*types.Transaction, error) {

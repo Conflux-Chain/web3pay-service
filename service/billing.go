@@ -56,6 +56,10 @@ func NewBillingService(sqliteStore *sqlite.SqliteStore, chainSvc *BlockchainServ
 }
 
 func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchRequest) (*BillingReceipt, error) {
+	if err := bs.chainSvc.ValidateBillingApp(req.App); err != nil {
+		return nil, err
+	}
+
 	var totalCost decimal.Decimal
 	resourceCosts := make(map[string]decimal.Decimal)
 	statements := make(map[uint32]int64)
