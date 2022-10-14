@@ -198,8 +198,8 @@ func (p *Provider) BatchChargeAppBills(
 	return appContract.ChargeBatch(opts, requests)
 }
 
-// FlushPendingConfig flushes APP pending configurations.
-func (p *Provider) FlushPendingConfig(opts *bind.TransactOpts, awtAddr common.Address) (*types.Transaction, error) {
+// FlushApiWeightTokenPendingConfig flushes `ApiWeightToken` pending configurations.
+func (p *Provider) FlushApiWeightTokenPendingConfig(opts *bind.TransactOpts, awtAddr common.Address) (*types.Transaction, error) {
 	awtContract, err := p.GetApiWeightTokenContract(awtAddr)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to get `ApiWeightToken` contract")
@@ -337,8 +337,8 @@ func (p *Provider) GetAppAccountBalance(
 	return big.NewInt(0).Add(depositAmount, airdropAmount), nil
 }
 
-// GetPendingSeconds gets pending seconds for APP config delay
-func (p *Provider) GetPendingSeconds(callOpts *bind.CallOpts, awtAddr common.Address) (*big.Int, error) {
+// GetApiWeightTokenPendingSeconds gets pending delay seconds for `ApiWeightToken` resources.
+func (p *Provider) GetApiWeightTokenPendingSeconds(callOpts *bind.CallOpts, awtAddr common.Address) (*big.Int, error) {
 	awtContract, err := p.GetApiWeightTokenContract(awtAddr)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to get `ApiWeightToken` contract")
@@ -422,13 +422,13 @@ func (p *Provider) iterateAppRegistryApps(
 	return nil
 }
 
-// GetConfigResources gets APP config resources.
-func (p *Provider) GetConfigResources(
+// GetApiWeightTokenResources gets `ApiWeightToken` config resources.
+func (p *Provider) GetApiWeightTokenResources(
 	callOpts *bind.CallOpts, awtAddr common.Address) (map[string]contract.IAppConfigConfigEntry, error) {
 	appResources := make(map[string]contract.IAppConfigConfigEntry)
 
 	// iterate all resources under specified `ApiWeightToken` contract
-	err := p.IterateConfigResources(callOpts, awtAddr, func(confEntry contract.IAppConfigConfigEntry) (bool, error) {
+	err := p.IterateApiWeightTokenResources(callOpts, awtAddr, func(confEntry contract.IAppConfigConfigEntry) (bool, error) {
 		appResources[confEntry.ResourceId] = confEntry
 		return false, nil
 	})
@@ -441,8 +441,8 @@ func (p *Provider) GetConfigResources(
 	return appResources, nil
 }
 
-// IterateConfigResources iterates all resources under specified `ApiWeightToken`
-func (p *Provider) IterateConfigResources(
+// IterateApiWeightTokenResources iterates all resources under specified `ApiWeightToken`
+func (p *Provider) IterateApiWeightTokenResources(
 	callOpts *bind.CallOpts, awtAddr common.Address, iterator func(confEntry contract.IAppConfigConfigEntry) (bool, error),
 ) error {
 	awtContract, err := p.GetApiWeightTokenContract(awtAddr)

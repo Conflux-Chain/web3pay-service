@@ -62,14 +62,14 @@ func (bs *BlockchainService) OnAppCreated(event *contract.AppRegistryCreated, ra
 				"apiWeightToken": event.ApiWeightToken,
 			})
 
-			pendingSec, err := bs.provider.GetPendingSeconds(baseCallOpt, event.ApiWeightToken)
+			pendingSec, err := bs.provider.GetApiWeightTokenPendingSeconds(baseCallOpt, event.ApiWeightToken)
 			if err != nil {
 				logger.Error("Blockchain service failed to get pending seconds")
 				time.Sleep(time.Second)
 				continue
 			}
 
-			resources, err := bs.provider.GetConfigResources(baseCallOpt, event.ApiWeightToken)
+			resources, err := bs.provider.GetApiWeightTokenResources(baseCallOpt, event.ApiWeightToken)
 			if err != nil {
 				logger.WithError(err).Error("Blockchain service failed to get new created APP resources")
 				time.Sleep(time.Second)
@@ -196,15 +196,16 @@ func (bs *BlockchainService) OnResourceChanged(event *contract.ApiWeightTokenRes
 			apiWeightToken := rawlog.Address
 			blockNum := int64(rawlog.BlockNumber)
 			baseCallOpt := &bind.CallOpts{BlockNumber: big.NewInt(blockNum)}
+			logger := logrus.WithFields(logrus.Fields{
+				"apiWeightToken": apiWeightToken,
+				"resourceId":     event.Id,
+				"resourceWeight": event.Weight.Int64(),
+				"Operation":      event.Op,
+			})
 
-			resources, err := bs.provider.GetConfigResources(baseCallOpt, apiWeightToken)
+			resources, err := bs.provider.GetApiWeightTokenResources(baseCallOpt, apiWeightToken)
 			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"apiWeightToken": apiWeightToken,
-					"resourceId":     event.Id,
-					"resourceWeight": event.Weight.Int64(),
-					"Op":             event.Op,
-				}).WithError(err).Error("Blockchain service failed to get config resources")
+				logger.WithError(err).Error("Blockchain service failed to get config resources")
 				time.Sleep(time.Second)
 				continue
 			}
@@ -222,6 +223,7 @@ func (bs *BlockchainService) OnResourceChanged(event *contract.ApiWeightTokenRes
 
 			appBase, ok := bs.appBaseMap[app]
 			if !ok { // // APP not found?
+				logger.Error("Blockchain service failed to update config resources for non-existed app")
 				return
 			}
 

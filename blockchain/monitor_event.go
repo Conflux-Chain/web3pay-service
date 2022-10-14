@@ -209,6 +209,7 @@ func (m *Monitor) handleAppRegistryCreated(appRegistryAbi *abi.ABI, log *types.L
 		"Operator":       eventCreated.Operator,
 		"Owner":          eventCreated.Owner,
 		"ApiWeightToken": eventCreated.ApiWeightToken,
+		"VipCoin":        eventCreated.VipCoin,
 	})
 
 	if m.FilterOwnerAddress != nil && *m.FilterOwnerAddress != eventCreated.Owner {

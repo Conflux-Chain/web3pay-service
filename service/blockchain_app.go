@@ -69,12 +69,12 @@ func (bs *BlockchainService) initApps() error {
 			return err
 		}
 
-		pendingSec, err := bs.provider.GetPendingSeconds(baseCallOpt, awtAddr)
+		pendingSec, err := bs.provider.GetApiWeightTokenPendingSeconds(baseCallOpt, awtAddr)
 		if err != nil {
 			return errors.WithMessage(err, "failed to get pending seconds")
 		}
 
-		resources, err := bs.provider.GetConfigResources(baseCallOpt, awtAddr)
+		resources, err := bs.provider.GetApiWeightTokenResources(baseCallOpt, awtAddr)
 		if err != nil {
 			return err
 		}
@@ -128,7 +128,7 @@ func (svc *BlockchainService) GetAppConfigResourceWithId(
 		}
 	}
 
-	return nil, model.ErrConfigResourceNotFound
+	return nil, model.ErrResourceNotFound
 }
 
 // ValidateAppOperator validates if the account address is the valid operator for the APP contract.
@@ -146,7 +146,7 @@ func (svc *BlockchainService) ValidateAppOperator(appAddr, operator common.Addre
 	}).Debug("Blockchain service validated APP contract operator")
 
 	if !reflect.DeepEqual(expecOperator, operator) {
-		return model.ErrNotAnValidAppOperator
+		return model.ErrInvalidAppOperator
 	}
 
 	return nil
@@ -189,7 +189,7 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 		}
 
 		// iterate all tracking APP
-		return bs.provider.IterateConfigResources(nil, ab.ApiWeightToken, func(confEntry contract.IAppConfigConfigEntry) (bool, error) {
+		return bs.provider.IterateApiWeightTokenResources(nil, ab.ApiWeightToken, func(confEntry contract.IAppConfigConfigEntry) (bool, error) {
 			// checking pending operation code
 			if confEntry.PendingOP == contract.OpCodeResourceConfigNoPending {
 				logrus.WithFields(logrus.Fields{
@@ -214,7 +214,7 @@ func (bs *BlockchainService) execResourceConfigOnce() error {
 			}
 
 			// contract call `flushPendingConfig`
-			txn, err := bs.provider.FlushPendingConfig(nil, ab.ApiWeightToken)
+			txn, err := bs.provider.FlushApiWeightTokenPendingConfig(nil, ab.ApiWeightToken)
 			if err != nil {
 				logrus.WithField("app", app).
 					WithError(err).

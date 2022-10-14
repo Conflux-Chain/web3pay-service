@@ -98,7 +98,7 @@ func (bs *BillingService) BillBatch(ctx context.Context, req *BillingBatchReques
 	// account frozen?
 	if appAccount.IsFrozen() {
 		logger.Debug("Billing skipped due to customer account frozen")
-		return nil, model.ErrAccountAddrFrozen.WithData(receipt)
+		return nil, model.ErrAccountFrozen.WithData(receipt)
 	}
 
 	receipt.Balance = appAccount.TotalBalance().String()
