@@ -9,9 +9,9 @@ import (
 )
 
 type keygenConfig struct {
-	KeyType         string // "billing" or "api" auth key
-	AppCoinContract string // APP coin contract address
-	PrivateKey      string // private key
+	KeyType     string // "billing" or "api" auth key
+	AppContract string // APP contract address
+	PrivateKey  string // private key
 }
 
 var (
@@ -33,7 +33,7 @@ func init() {
 
 	// APP coin contract
 	genKeyCmd.Flags().StringVarP(
-		&kgconfig.AppCoinContract, "app", "a", "", "APP coin contract address",
+		&kgconfig.AppContract, "app", "a", "", "APP coin contract address",
 	)
 	genKeyCmd.MarkFlagRequired("app")
 
@@ -52,10 +52,10 @@ func genAuthKey(cmd *cobra.Command, args []string) {
 		kgconfig.KeyType = "billing"
 	}
 
-	authKey, err := keyBuilder(kgconfig.AppCoinContract, kgconfig.PrivateKey)
+	authKey, err := keyBuilder(kgconfig.AppContract, kgconfig.PrivateKey)
 	logrus.WithFields(logrus.Fields{
-		"APPCoinContract": kgconfig.AppCoinContract,
-		"AuthKeyType":     kgconfig.KeyType,
-		"AuthKey":         authKey,
+		"APPContract": kgconfig.AppContract,
+		"AuthKeyType": kgconfig.KeyType,
+		"AuthKey":     authKey,
 	}).WithError(err).Info("Auth key generated")
 }

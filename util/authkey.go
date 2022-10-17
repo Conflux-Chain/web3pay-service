@@ -28,7 +28,7 @@ func NewAuthKeyManager() *AuthKeyManager {
 
 type apiAuthMessage struct {
 	Domain   string `json:"domain"`   // always be "web3pay"
-	Contract string `json:"contract"` // APP coin contract address
+	Contract string `json:"contract"` // APP contract address
 }
 
 func (m *AuthKeyManager) GetApiAuthMessage(contract string) (string, error) {
@@ -56,10 +56,10 @@ func GetApiAuthMessage(contract string) (string, error) {
 	return stdAuthKeyManager.GetApiAuthMessage(contract)
 }
 
-// BuildApiKey utility function to help build API key with specified APP coin contract address
+// BuildApiKey utility function to help build API key with specified APP contract address
 // and consumer private key text.
-func BuildApiKey(appCoinContract string, consumerPrivateKeyText string) (string, error) {
-	apiAuthMessage, err := GetApiAuthMessage(appCoinContract)
+func BuildApiKey(appContract string, consumerPrivateKeyText string) (string, error) {
+	apiAuthMessage, err := GetApiAuthMessage(appContract)
 	if err != nil {
 		return "", errors.WithMessage(err, "API auth message error")
 	}
@@ -83,9 +83,9 @@ func BuildApiKey(appCoinContract string, consumerPrivateKeyText string) (string,
 	return apiKey, nil
 }
 
-// BuildBillingKey utility function to help build billing key with specified APP coin contract address
+// BuildBillingKey utility function to help build billing key with specified APP contract address
 // and its owner private key text.
-func BuildBillingKey(appCoinContract string, ownerPrivateKeyText string) (string, error) {
+func BuildBillingKey(appContract string, ownerPrivateKeyText string) (string, error) {
 	// load private key
 	privateKey, err := EcdsaPrivateKeyFromString(ownerPrivateKeyText)
 	if err != nil {
@@ -93,14 +93,14 @@ func BuildBillingKey(appCoinContract string, ownerPrivateKeyText string) (string
 	}
 
 	// create signature
-	sig, _, err := PersonalSign(appCoinContract, privateKey)
+	sig, _, err := PersonalSign(appContract, privateKey)
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to create signature")
 	}
 
 	// json marshal auth key
 	authKeyObj, err := json.Marshal(model.BillingAuthKey{
-		Msg: appCoinContract, Sig: sig,
+		Msg: appContract, Sig: sig,
 	})
 	if err != nil {
 		return "", errors.WithMessage(err, "failed to json marshal auth key object")
