@@ -31,9 +31,9 @@ func init() {
 		&kgconfig.KeyType, "type", "t", "billing", "(billing or api) auth key",
 	)
 
-	// APP coin contract
+	// APP contract
 	genKeyCmd.Flags().StringVarP(
-		&kgconfig.AppContract, "app", "a", "", "APP coin contract address",
+		&kgconfig.AppContract, "app", "a", "", "APP contract address",
 	)
 	genKeyCmd.MarkFlagRequired("app")
 

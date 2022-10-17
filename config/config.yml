@@ -46,7 +46,7 @@ api:
 
 # Blockchain Configurations
 blockchain:
-  # AppRegistry contract address from where to retrieve list of tracking APP coins (mandatory).
+  # AppRegistry contract address from where to retrieve list of tracking APPs (mandatory).
   appRegistryContractAddr:
   # Owner address used to filter APP(s) to be tracked (optional).
   OwnerAddr:

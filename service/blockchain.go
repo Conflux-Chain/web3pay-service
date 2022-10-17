@@ -63,7 +63,7 @@ func NewBlockchainService(
 	bs.sigAddrCache = lruCache
 
 	if err := bs.initApps(); err != nil {
-		return nil, errors.WithMessage(err, "failed to initialize APP coins")
+		return nil, errors.WithMessage(err, "failed to initialize APPs")
 	}
 
 	go bs.delayQueue.Poll()

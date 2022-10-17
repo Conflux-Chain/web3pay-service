@@ -253,7 +253,7 @@ func (bs *BlockchainService) OnReorgRevert(revertToBlock int64) error {
 		}
 
 		logrus.WithField("revertToBlock", revertToBlock).
-			WithError(err).Error("Blockchain service failed to reorg revert APP coin accounts")
+			WithError(err).Error("Blockchain service failed to reorg revert APP accounts")
 		time.Sleep(time.Second)
 	}
 

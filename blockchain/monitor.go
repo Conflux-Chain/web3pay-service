@@ -406,7 +406,7 @@ func (m *Monitor) confirmSubscribedAccountStatus(confirmTasks *list.List) {
 		if err != nil {
 			logrus.WithField("confirmTask", task).
 				WithError(err).
-				Info("Monitor failed to confirm APP coin account status")
+				Info("Monitor failed to confirm APP account status")
 			metrics.Monitor.ConfirmQps(err).UpdateSince(start)
 			v = v.Next()
 			continue
