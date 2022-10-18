@@ -8,6 +8,7 @@ import (
 	"time"
 
 	web3pay "github.com/Conflux-Chain/web3pay-service/client"
+	"github.com/Conflux-Chain/web3pay-service/client/middleware"
 	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 )
@@ -20,7 +21,7 @@ func testBilling(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	ctx := req.Context()
-	bs, ok := web3pay.BillingStatusFromContext(ctx)
+	bs, ok := middleware.BillingStatusFromContext(ctx)
 	if !ok {
 		rw.Write([]byte("billing middleware not enabled"))
 		return
@@ -46,10 +47,10 @@ func RunRestfulServiceProvider(config web3pay.ClientConfig, port int) error {
 	}
 
 	// hook http server middleware handler
-	mwOption := web3pay.NewHttpBillingMiddlewareOptionWithClient(client)
-	kContextInjector := web3pay.ApiKeyContextInjector(GetApiKey)
-	ctxInjectMw := web3pay.HttpInjectContextMiddleware(kContextInjector)
-	handler := ctxInjectMw(web3pay.HttpBillingMiddleware(mwOption)(mux))
+	mwOption := middleware.NewHttpBillingMiddlewareOptionWithClient(client)
+	kContextInjector := middleware.ApiKeyContextInjector(GetApiKey)
+	ctxInjectMw := middleware.HttpInjectContextMiddleware(kContextInjector)
+	handler := ctxInjectMw(middleware.HttpBillingMiddleware(mwOption)(mux))
 
 	// serve RESTful RPC service
 	endpoint := fmt.Sprintf(":%d", port)
