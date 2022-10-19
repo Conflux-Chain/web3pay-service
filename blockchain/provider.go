@@ -43,6 +43,7 @@ type Provider struct {
 	mutex                sync.Mutex
 	apps                 sync.Map // common.Address => *contract.APP
 	apiWeightTokens      sync.Map // common.Address => *contract.ApiWeightToken
+	cardTrackers         sync.Map // common.Address => *contract.CardTracker
 	referenceBlockNumber int64    // reference block number for ops (eg., sync)
 }
 
@@ -147,6 +148,40 @@ func (p *Provider) GetApiWeightTokenContract(awtAddr common.Address) (*contract.
 
 	p.apiWeightTokens.Store(awtAddr, awtCaller)
 	return awtCaller, nil
+}
+
+// GetCardShopContract gets `CardShop` contract stub.
+func (p *Provider) GetCardShopContract(csAddr common.Address) (*contract.CardShop, error) {
+	csCaller, err := contract.NewCardShop(csAddr, p.bindCallContext.contractClient)
+	if err != nil {
+		logrus.WithField("cardShop", csAddr).WithError(err).Info("Failed to create `CardShop` contract stub")
+		return nil, err
+	}
+
+	return csCaller, nil
+}
+
+// GetCardTrackerContract gets `CardTracker` contract stub.
+func (p *Provider) GetCardTrackerContract(ctAddr common.Address) (*contract.CardTracker, error) {
+	if v, ok := p.cardTrackers.Load(ctAddr); ok {
+		return v.(*contract.CardTracker), nil
+	}
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if v, ok := p.cardTrackers.Load(ctAddr); ok { // double check
+		return v.(*contract.CardTracker), nil
+	}
+
+	ctCaller, err := contract.NewCardTracker(ctAddr, p.bindCallContext.contractClient)
+	if err != nil {
+		logrus.WithField("cardTracker", ctAddr).WithError(err).Info("Failed to create `CardTracker` contract stub")
+		return nil, err
+	}
+
+	p.cardTrackers.Store(ctAddr, ctCaller)
+	return ctCaller, nil
 }
 
 // BatchChargeAppBills batch charges APP bills.

@@ -7,22 +7,30 @@ import (
 
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/btcsuite/btcutil/base58"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
 )
+
+const sigAddressCacheSize = 50_000
 
 var (
 	stdAuthKeyManager = NewAuthKeyManager()
 )
 
 type AuthKeyManager struct {
-	lock     sync.Mutex
-	msgCache map[string]string // contract => api auth message
+	lock         sync.Mutex
+	msgCache     map[string]string // contract => api auth message
+	sigAddrCache *lru.Cache        // sha3(sig) => addr
 }
 
 func NewAuthKeyManager() *AuthKeyManager {
+	lruCache, _ := lru.New(sigAddressCacheSize)
 	return &AuthKeyManager{
-		msgCache: make(map[string]string),
+		sigAddrCache: lruCache,
+		msgCache:     make(map[string]string),
 	}
 }
 
@@ -31,7 +39,7 @@ type apiAuthMessage struct {
 	Contract string `json:"contract"` // APP contract address
 }
 
-func (m *AuthKeyManager) GetApiAuthMessage(contract string) (string, error) {
+func (m *AuthKeyManager) getApiAuthMessage(contract string) (string, error) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -52,14 +60,95 @@ func (m *AuthKeyManager) GetApiAuthMessage(contract string) (string, error) {
 	return msg, nil
 }
 
-func GetApiAuthMessage(contract string) (string, error) {
-	return stdAuthKeyManager.GetApiAuthMessage(contract)
+func (m *AuthKeyManager) GetAddrByApiAuthKey(contract string, apiKey *model.ApiAuthKey) (common.Address, error) {
+	cacheKey := crypto.Keccak256Hash([]byte(contract + apiKey.Sig))
+
+	return m.getAddrByCacheKey(cacheKey.String(), func() (common.Address, error) {
+		msg, err := m.getApiAuthMessage(contract)
+		if err != nil {
+			return common.Address{}, err
+		}
+
+		addrStr, err := RecoverAddress(msg, apiKey.Sig)
+		if err != nil {
+			return common.Address{}, err
+		}
+
+		return common.HexToAddress(addrStr), nil
+	})
+}
+
+func (m *AuthKeyManager) GetAddrByBillingAuthKey(billingKey *model.BillingAuthKey) (common.Address, error) {
+	cacheKey := crypto.Keccak256Hash([]byte(billingKey.Msg + billingKey.Sig))
+
+	return m.getAddrByCacheKey(cacheKey.String(), func() (common.Address, error) {
+		addrStr, err := RecoverAddress(billingKey.Msg, billingKey.Sig)
+		if err != nil {
+			return common.Address{}, err
+		}
+
+		return common.HexToAddress(addrStr), nil
+	})
+}
+
+func (m *AuthKeyManager) getAddrByCacheKey(
+	cacheKey string, genAddr func() (common.Address, error)) (common.Address, error) {
+
+	if val, ok := m.sigAddrCache.Get(cacheKey); ok { // hit in cache
+		return val.(common.Address), nil
+	}
+
+	lockKey := MutexKey(cacheKey)
+	KLock(lockKey)
+	defer KUnlock(lockKey)
+
+	if val, ok := m.sigAddrCache.Get(cacheKey); ok { // double check
+		return val.(common.Address), nil
+	}
+
+	addr, err := genAddr()
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	m.sigAddrCache.Add(cacheKey, addr)
+	return addr, nil
+}
+
+func getApiAuthMessage(contract string) (string, error) {
+	return stdAuthKeyManager.getApiAuthMessage(contract)
+}
+
+func GetAddrByApiAuthKey(contract string, apiKey *model.ApiAuthKey) (common.Address, error) {
+	return stdAuthKeyManager.GetAddrByApiAuthKey(contract, apiKey)
+}
+
+func GetAddrByApiKey(contract, apiKey string) (common.Address, error) {
+	key, err := ParseApiKey(apiKey)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	return stdAuthKeyManager.GetAddrByApiAuthKey(contract, key)
+}
+
+func GetAddrByBillingAuthKey(billingKey *model.BillingAuthKey) (common.Address, error) {
+	return stdAuthKeyManager.GetAddrByBillingAuthKey(billingKey)
+}
+
+func GetAddrByBillingKey(billingKey string) (common.Address, error) {
+	key, err := ParseBillingKey(billingKey)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	return stdAuthKeyManager.GetAddrByBillingAuthKey(key)
 }
 
 // BuildApiKey utility function to help build API key with specified APP contract address
 // and consumer private key text.
 func BuildApiKey(appContract string, consumerPrivateKeyText string) (string, error) {
-	apiAuthMessage, err := GetApiAuthMessage(appContract)
+	apiAuthMessage, err := getApiAuthMessage(appContract)
 	if err != nil {
 		return "", errors.WithMessage(err, "API auth message error")
 	}
@@ -81,6 +170,15 @@ func BuildApiKey(appContract string, consumerPrivateKeyText string) (string, err
 	apiKey := base58.Encode(sig)
 
 	return apiKey, nil
+}
+
+func ParseApiKey(apiKey string) (*model.ApiAuthKey, error) {
+	sig := base58.Decode(apiKey)
+	if len(sig) < 65 {
+		return nil, errors.New("signature bytes too short")
+	}
+
+	return &model.ApiAuthKey{Sig: hexutil.Encode(sig)}, nil
 }
 
 // BuildBillingKey utility function to help build billing key with specified APP contract address
@@ -109,4 +207,31 @@ func BuildBillingKey(appContract string, ownerPrivateKeyText string) (string, er
 	// base64 encoding auth key json
 	billKey := base64.StdEncoding.EncodeToString(authKeyObj)
 	return billKey, nil
+}
+
+func ParseBillingKey(billingKey string) (*model.BillingAuthKey, error) {
+	keyJson, err := base64.StdEncoding.DecodeString(billingKey)
+	if err != nil {
+		return nil, errors.WithMessage(err, "base64 decode error")
+	}
+
+	var key model.BillingAuthKey
+	if err := json.Unmarshal(keyJson, &key); err != nil {
+		return nil, errors.WithMessage(err, "json decode error")
+	}
+
+	if len(key.Msg) == 0 {
+		return nil, errors.New("msg not provided")
+	}
+
+	if len(key.Sig) == 0 {
+		return nil, errors.New("sig not provided")
+	}
+
+	// `msg` part must be a valid hex address
+	if !common.IsHexAddress(key.Msg) {
+		return nil, errors.New("msg not valid hex address")
+	}
+
+	return &key, err
 }

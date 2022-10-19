@@ -6,6 +6,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+type PaymentType = uint8
+
 const (
 	// operation codes for resource pending configurations
 	OpCodeResourceConfigAdd = iota
@@ -17,6 +19,10 @@ const (
 	// token id
 	TokenIdCoin    = 0
 	TokenIdAirdrop = 1
+
+	// payment type
+	PaymentTypeBilling   = PaymentType(1)
+	PaymentTypeSubscribe = PaymentType(2)
 )
 
 var (

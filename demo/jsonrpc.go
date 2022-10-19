@@ -10,6 +10,7 @@ import (
 
 	web3pay "github.com/Conflux-Chain/web3pay-service/client"
 	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
+	"github.com/Conflux-Chain/web3pay-service/client/middleware"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
@@ -19,7 +20,7 @@ import (
 type jrDemoApi struct{}
 
 func (api *jrDemoApi) TestBilling(ctx context.Context) (string, error) {
-	bs, ok := web3pay.BillingStatusFromContext(ctx)
+	bs, ok := middleware.BillingStatusFromContext(ctx)
 	if !ok {
 		return "", errors.New("billing middleware not enabled")
 	}
@@ -40,8 +41,8 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 	}
 
 	// hook web3pay billing middleware for go-rpc-provider
-	mwoption := web3pay.NewOw3BillingMiddlewareOptionWithClient(client)
-	rpc.HookHandleCallMsg(web3pay.Openweb3BillingMiddleware(mwoption))
+	mwoption := middleware.NewOw3BillingMiddlewareOptionWithClient(client)
+	rpc.HookHandleCallMsg(middleware.Openweb3BillingMiddleware(mwoption))
 
 	// create JSON-RPC server
 	handler := rpc.NewServer()
@@ -49,8 +50,8 @@ func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
 		return errors.WithMessage(err, "failed to register demo API service")
 	}
 
-	kContextInjector := web3pay.ApiKeyContextInjector(GetApiKey)
-	ctxInjectMw := web3pay.HttpInjectContextMiddleware(kContextInjector)
+	kContextInjector := middleware.ApiKeyContextInjector(GetApiKey)
+	ctxInjectMw := middleware.HttpInjectContextMiddleware(kContextInjector)
 	server := http.Server{
 		Handler: ctxInjectMw(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"})),
 	}

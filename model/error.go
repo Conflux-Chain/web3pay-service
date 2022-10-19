@@ -18,6 +18,7 @@ var (
 	ErrInsufficentBalance = &BusinessError{Code: 10002, Message: "Insufficient balance"}
 	ErrAccountFrozen      = &BusinessError{Code: 10003, Message: "Account fronzen"}
 	ErrInvalidAppOperator = &BusinessError{Code: 10004, Message: "Invalid APP operator"}
+	ErrNotBillingApp      = &BusinessError{Code: 10005, Message: "Not a billing APP"}
 )
 
 type BusinessError struct {

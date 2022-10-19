@@ -7,27 +7,21 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/blockchain"
 	"github.com/Conflux-Chain/web3pay-service/store/memdb"
 	"github.com/Conflux-Chain/web3pay-service/store/sqlite"
-	"github.com/Conflux-Chain/web3pay-service/util"
 	myqueue "github.com/MoeYang/go-queue"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/gammazero/workerpool"
-	lru "github.com/hashicorp/golang-lru"
 	"github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 const (
-	signatureAddressCacheSize = 50_000
-	statusConfirmQueueSize    = 5000
-	workerPoolSize            = 2
-	delayQueueSize            = 5000
-	depositTxnHashCacheSize   = 1_500
+	statusConfirmQueueSize  = 5000
+	workerPoolSize          = 2
+	delayQueueSize          = 5000
+	depositTxnHashCacheSize = 1_500
 )
 
 type BlockchainService struct {
-	sigAddrCache                 *lru.Cache // sha3(sig) => addr
 	sqliteStore                  *sqlite.SqliteStore
 	memStore                     *memdb.MemStore
 	provider                     *blockchain.Provider
@@ -56,12 +50,6 @@ func NewBlockchainService(
 		depositTxnHashCache: cache.New(5*time.Minute, 10*time.Minute),
 	}
 
-	lruCache, err := lru.New(signatureAddressCacheSize)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to init sig addr cache")
-	}
-	bs.sigAddrCache = lruCache
-
 	if err := bs.initApps(); err != nil {
 		return nil, errors.WithMessage(err, "failed to initialize APPs")
 	}
@@ -72,48 +60,4 @@ func NewBlockchainService(
 	go bs.checkOperatorBalance()
 
 	return bs, nil
-}
-
-// RecoverAddressBySignature recovers signer address from message and signature.
-// Also cache the recovered address for later use to improve performance.
-func (svc *BlockchainService) RecoverAddressBySignature(msg, sig string) (string, error) {
-	logger := logrus.WithFields(logrus.Fields{
-		"msg": msg, "sig": sig,
-	})
-
-	cacheKey := crypto.Keccak256Hash([]byte(sig))
-
-	val, ok := svc.sigAddrCache.Get(cacheKey)
-	if ok { // hit in cache
-		addr := val.(string)
-
-		logger.WithFields(logrus.Fields{
-			"addr": addr, "cacheKey": cacheKey,
-		}).Debug("Get address by signagure from the cache")
-
-		return addr, nil
-	}
-
-	lockKey := util.MutexKey(cacheKey.String())
-	util.KLock(lockKey)
-	defer util.KUnlock(lockKey)
-
-	if val, ok := svc.sigAddrCache.Get(cacheKey); ok { // double checking
-		return val.(string), nil
-	}
-
-	addr, err := util.RecoverAddress(msg, sig)
-	if err != nil {
-		logger.WithError(err).Debug("Failed to recover address by signature")
-
-		return "", err
-	}
-
-	logger.WithFields(logrus.Fields{
-		"addr": addr, "cacheKey": cacheKey,
-	}).Debug("Address recovered from signature")
-
-	svc.sigAddrCache.Add(cacheKey, addr)
-
-	return addr, nil
 }

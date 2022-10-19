@@ -24,11 +24,21 @@ const (
 type resourceConfig = contract.IAppConfigConfigEntry
 type AppBase struct {
 	Addr           common.Address            // APP contract address
+	PaymentType    contract.PaymentType      // payment type
+	CardTracker    common.Address            // VIP card tracker contract address
 	ApiWeightToken common.Address            // `ApiWeightToken` contract address
 	VipCoin        common.Address            // `VipCoin` contract address
 	PendingSeconds *big.Int                  // pending seconds for delaying config
 	Resources      map[string]resourceConfig // resource config
 	UpdateBlock    int64                     // the last block of which to update resources
+}
+
+func (ab *AppBase) IsBillingMode() bool {
+	return ab.PaymentType == contract.PaymentTypeBilling
+}
+
+func (ab *AppBase) IsSubscriptionMode() bool {
+	return ab.PaymentType == contract.PaymentTypeSubscribe
 }
 
 func (bs *BlockchainService) initApps() error {
@@ -42,6 +52,43 @@ func (bs *BlockchainService) initApps() error {
 		appContract, err := bs.provider.GetAppContract(app)
 		if err != nil {
 			return errors.WithMessage(err, "failed to get `app` contract")
+		}
+
+		// payment type
+		paymentType, err := appContract.PaymentType(baseCallOpt)
+		if err != nil {
+			return errors.New("failed to get APP payment type")
+		}
+
+		if paymentType != contract.PaymentTypeBilling && // billing mode
+			paymentType != contract.PaymentTypeSubscribe { // subscription mode
+			return errors.New("invalid APP payment type")
+		}
+
+		// subscription mode
+		if paymentType == contract.PaymentTypeSubscribe {
+			csAddr, err := appContract.CardShop(baseCallOpt)
+			if err != nil {
+				return errors.New("failed to get APP card shop")
+			}
+
+			csContract, err := bs.provider.GetCardShopContract(csAddr)
+			if err != nil {
+				return errors.New("failed to get card shop contract")
+			}
+
+			ctAddr, err := csContract.Tracker(baseCallOpt)
+			if err != nil {
+				return errors.New("failed to get card shop tracker")
+			}
+
+			bs.appBaseMap[app] = AppBase{
+				Addr:        app,
+				PaymentType: paymentType,
+				CardTracker: ctAddr,
+			}
+
+			return nil
 		}
 
 		// check if the operator has charging role?
@@ -59,6 +106,7 @@ func (bs *BlockchainService) initApps() error {
 			return errors.New("`chargeRole` not granted for the operator")
 		}
 
+		// billing mode
 		vipCoinAddr, err := bs.provider.GetAppVipCoin(baseCallOpt, app)
 		if err != nil {
 			return err
@@ -81,6 +129,7 @@ func (bs *BlockchainService) initApps() error {
 
 		bs.appBaseMap[app] = AppBase{
 			Addr:           app,
+			PaymentType:    paymentType,
 			ApiWeightToken: awtAddr,
 			VipCoin:        vipCoinAddr,
 			PendingSeconds: pendingSec,
@@ -98,6 +147,22 @@ func (bs *BlockchainService) initApps() error {
 		"appBases":             bs.appBaseMap,
 		"referenceBlockNumber": refBlockNumber,
 	}).Debug("Blockchain service APP bases initialized")
+
+	return nil
+}
+
+func (svc *BlockchainService) ValidateBillingApp(app common.Address) error {
+	svc.appMutex.Lock()
+	defer svc.appMutex.Unlock()
+
+	ab, ok := svc.appBaseMap[app]
+	if !ok {
+		return model.ErrAppNotFound
+	}
+
+	if !ab.IsBillingMode() {
+		return model.ErrNotBillingApp
+	}
 
 	return nil
 }
@@ -184,7 +249,7 @@ func (bs *BlockchainService) delayExecResourceConfig() {
 func (bs *BlockchainService) execResourceConfigOnce() error {
 	return bs.provider.IterateTrackedApps(nil, func(app common.Address) error {
 		ab, ok := bs.getAppBase(app)
-		if !ok { // APP not found yet
+		if !ok || !ab.IsBillingMode() { // APP not found or not a billing APP
 			return nil
 		}
 
