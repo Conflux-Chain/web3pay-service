@@ -129,9 +129,12 @@ func (c *BillingClient) doCall(ctx context.Context, out interface{}, method stri
 }
 
 type VipSubscriptionClientConfig struct {
-	AppContract          common.Address // App contract address
-	VipInfoCacheSize     int            `default:"5000"` // VIP info cache size
-	VipInfoExpirationTTL time.Duration  `default:"15m"`  // VIP info cache expiration time
+	*web3go.ClientOption
+
+	ChainRpcUrl          string        // blockchain network RPC endpoint
+	AppContract          string        // App contract address
+	VipInfoCacheSize     int           `default:"5000"` // VIP info cache size
+	VipInfoExpirationTTL time.Duration `default:"15m"`  // VIP info cache expiration time
 }
 
 // VipSubscriptionClient client to get VIP subscription info
@@ -145,13 +148,24 @@ type VipSubscriptionClient struct {
 	vipInfoCache *util.ExpirableLruCache
 }
 
-func NewVipSubscriptionClient(w3c *web3go.Client, conf VipSubscriptionClientConfig) (*VipSubscriptionClient, error) {
+func NewVipSubscriptionClient(conf VipSubscriptionClientConfig) (*VipSubscriptionClient, error) {
 	defaults.SetDefaults(&conf)
+
+	option := web3go.ClientOption{}
+	if conf.ClientOption != nil {
+		option = *conf.ClientOption
+	}
+
+	w3c, err := web3go.NewClientWithOption(conf.ChainRpcUrl, option)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to new `web3go` client")
+	}
 
 	clientForContract, _ := w3c.ToClientForContract()
 
 	// App contract stub
-	appContract, err := contract.NewApp(conf.AppContract, clientForContract)
+	app := common.HexToAddress(conf.AppContract)
+	appContract, err := contract.NewApp(app, clientForContract)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to init `App` contract")
 	}
@@ -188,7 +202,7 @@ func NewVipSubscriptionClient(w3c *web3go.Client, conf VipSubscriptionClientConf
 }
 
 func (c *VipSubscriptionClient) GetVipSubscriptionInfo(apiKey string) (*VipInfo, error) {
-	account, err := util.GetAddrByApiKey(c.AppContract.String(), apiKey)
+	account, err := util.GetAddrByApiKey(c.AppContract, apiKey)
 	if err != nil {
 		return nil, model.ErrAuth.WithData(err.Error())
 	}

@@ -2,6 +2,7 @@ package demo
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,8 +33,23 @@ func (api *jrDemoApi) TestBilling(ctx context.Context) (string, error) {
 	return "", errors.WithMessage(bs.Error, "billing failed")
 }
 
-// RunJsonRpcServiceProvider runs a demo JSON-RPC server to provide billed service.
-func RunJsonRpcServiceProvider(config web3pay.BillingClientConfig, port int) error {
+func (api *jrDemoApi) TestSubscription(ctx context.Context) (string, error) {
+	ss, ok := middleware.VipSubscriptionStatusFromContext(ctx)
+	if !ok {
+		return "", errors.New("VIP subscription middleware  not enabled")
+	}
+
+	vi, err := ss.GetVipInfo()
+	if err != nil {
+		return "", errors.WithMessage(ss.Error, "VIP subscription middleware failed")
+	}
+
+	vidata, err := json.Marshal(vi)
+	return string(vidata), err
+}
+
+// RunBillingJsonRpcServiceProvider runs a demo JSON-RPC server to provide billing service.
+func RunBillingJsonRpcServiceProvider(config web3pay.BillingClientConfig, port int) error {
 	// create web3pay client
 	client, err := web3pay.NewBillingClient(config)
 	if err != nil {
@@ -44,6 +60,25 @@ func RunJsonRpcServiceProvider(config web3pay.BillingClientConfig, port int) err
 	mwoption := middleware.NewOw3BillingMiddlewareOptionWithClient(client)
 	rpc.HookHandleCallMsg(middleware.Openweb3BillingMiddleware(mwoption))
 
+	return runJsonRpcDemoApiServer(port)
+}
+
+// RunSubscriptionJsonRpcServiceProvider runs a demo JSON-RPC server to provide VIP subscription service.
+func RunSubscriptionJsonRpcServiceProvider(config web3pay.VipSubscriptionClientConfig, port int) error {
+	// create web3pay VIP subscription client
+	client, err := web3pay.NewVipSubscriptionClient(config)
+	if err != nil {
+		return errors.WithMessage(err, "failed to new web3pay VIP subscription client")
+	}
+
+	// hook web3pay billing middleware for go-rpc-provider
+	mwoption := middleware.NewVipSubscriptionMiddlewareOptionWithClient(client)
+	rpc.HookHandleCallMsg(middleware.Openweb3VipSubscriptionMiddleware(mwoption))
+
+	return runJsonRpcDemoApiServer(port)
+}
+
+func runJsonRpcDemoApiServer(port int) error {
 	// create JSON-RPC server
 	handler := rpc.NewServer()
 	if err := handler.RegisterName("demo", &jrDemoApi{}); err != nil {
@@ -71,16 +106,25 @@ func RunJsonRpcServiceProvider(config web3pay.BillingClientConfig, port int) err
 	return nil
 }
 
-// RunJsonRpcServiceConsumer runs a JSON-RPC consumer once to test the demo billed service provider.
-func RunJsonRpcServiceConsumer(apiKey string, srvPort int) (interface{}, error) {
+// RunBillingJsonRpcServiceConsumer runs a JSON-RPC consumer once to test the demo billing service provider.
+func RunBillingJsonRpcServiceConsumer(apiKey string, srvPort int) (interface{}, error) {
+	return callJsonRpcServiceProvider(apiKey, srvPort, "demo_testBilling")
+}
+
+// RunSubscriptionJsonRpcServiceConsumer runs a JSON-RPC consumer once to test the demo VIP subscription service provider.
+func RunSubscriptionJsonRpcServiceConsumer(apiKey string, srvPort int) (interface{}, error) {
+	return callJsonRpcServiceProvider(apiKey, srvPort, "demo_testSubscription")
+}
+
+func callJsonRpcServiceProvider(apiKey string, srvPort int, method string) (interface{}, error) {
 	rpcSrvUrl := fmt.Sprintf("http://127.0.0.1:%d/%s", srvPort, url.QueryEscape(apiKey))
 	rpcClient := jsonrpc.NewClientWithOpts(
 		rpcSrvUrl, &jsonrpc.RPCClientOpts{Timeout: time.Second},
 	)
 
-	// call billed service provider
+	// call service provider
 	var reply string
-	err := rpcClient.CallFor(context.Background(), &reply, "demo_testBilling", []interface{}{})
+	err := rpcClient.CallFor(context.Background(), &reply, method, []interface{}{})
 	if err != nil {
 		return nil, err
 	}
