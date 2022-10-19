@@ -36,7 +36,7 @@ func (api *jrDemoApi) TestBilling(ctx context.Context) (string, error) {
 func (api *jrDemoApi) TestSubscription(ctx context.Context) (string, error) {
 	ss, ok := middleware.VipSubscriptionStatusFromContext(ctx)
 	if !ok {
-		return "", errors.New("VIP subscription middleware  not enabled")
+		return "", errors.New("VIP subscription middleware not enabled")
 	}
 
 	vi, err := ss.GetVipInfo()
