@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -35,12 +36,35 @@ func testBilling(rw http.ResponseWriter, req *http.Request) {
 	rw.Write([]byte(errors.WithMessage(bs.Error, "billing failed").Error()))
 }
 
-// RunRestfulServiceProvider runs a demo RESTful server to provide billed service.
-func RunRestfulServiceProvider(config web3pay.BillingClientConfig, port int) error {
+func testSubscription(rw http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		rw.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := req.Context()
+	ss, ok := middleware.VipSubscriptionStatusFromContext(ctx)
+	if !ok {
+		rw.Write([]byte("VIP subscription middleware not enabled"))
+		return
+	}
+
+	vi, err := ss.GetVipInfo()
+	if err != nil {
+		rw.Write([]byte(errors.WithMessage(ss.Error, "VIP subscription middleware failed").Error()))
+		return
+	}
+
+	vidata, _ := json.Marshal(vi)
+	rw.Write([]byte(vidata))
+}
+
+// RunBillingRestfulServiceProvider runs a demo RESTful server to provide billed service.
+func RunBillingRestfulServiceProvider(config web3pay.BillingClientConfig, port int) error {
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(testBilling))
 
-	// create web3pay client
+	// create web3pay billing client
 	client, err := web3pay.NewBillingClient(config)
 	if err != nil {
 		return errors.WithMessage(err, "failed to new web3pay client")
@@ -51,6 +75,32 @@ func RunRestfulServiceProvider(config web3pay.BillingClientConfig, port int) err
 	kContextInjector := middleware.ApiKeyContextInjector(GetApiKey)
 	ctxInjectMw := middleware.HttpInjectContextMiddleware(kContextInjector)
 	handler := ctxInjectMw(middleware.HttpBillingMiddleware(mwOption)(mux))
+
+	// serve RESTful RPC service
+	endpoint := fmt.Sprintf(":%d", port)
+	if err := http.ListenAndServe(endpoint, handler); err != http.ErrServerClosed {
+		return errors.WithMessage(err, "failed to listen and server endpoint")
+	}
+
+	return nil
+}
+
+// RunSubscriptionRestfulServiceProvider runs a demo RESTful server to provide VIP subscription service.
+func RunSubscriptionRestfulServiceProvider(config web3pay.VipSubscriptionClientConfig, port int) error {
+	mux := http.NewServeMux()
+	mux.Handle("/", http.HandlerFunc(testSubscription))
+
+	// create web3pay VIP subscription client
+	client, err := web3pay.NewVipSubscriptionClient(config)
+	if err != nil {
+		return errors.WithMessage(err, "failed to new web3pay VIP subscription client")
+	}
+
+	// hook http server middleware handler
+	mwOption := middleware.NewVipSubscriptionMiddlewareOptionWithClient(client)
+	kContextInjector := middleware.ApiKeyContextInjector(GetApiKey)
+	ctxInjectMw := middleware.HttpInjectContextMiddleware(kContextInjector)
+	handler := ctxInjectMw(middleware.HttpVipSubscriptionMiddleware(mwOption)(mux))
 
 	// serve RESTful RPC service
 	endpoint := fmt.Sprintf(":%d", port)

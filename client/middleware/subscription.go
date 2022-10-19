@@ -15,7 +15,7 @@ import (
 
 const (
 	// VIP subscription status context key
-	CtxKeySubscriptionStatus = CtxKey("Web3Pay-Subscription-Status")
+	CtxKeyVipSubscriptionStatus = CtxKey("Web3Pay-Vip-Subscription-Status")
 )
 
 // VipInfo VIP subscription information
@@ -57,6 +57,12 @@ func (bs *VipSubscriptionStatus) BusinessError() (*model.BusinessError, bool) {
 	return nil, false
 }
 
+// VipSubscriptionStatusFromContext returns VIP subscription status from context
+func VipSubscriptionStatusFromContext(ctx context.Context) (*VipSubscriptionStatus, bool) {
+	ss, ok := ctx.Value(CtxKeyVipSubscriptionStatus).(*VipSubscriptionStatus)
+	return ss, ok
+}
+
 type VipSubscriptionMiddlewareOption struct {
 	// client to request VIP subscription info from the blockchain network (mandatory)
 	Client *client.VipSubscriptionClient
@@ -88,7 +94,7 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, ss *VipSubscriptionStatus) *rpc.JsonRpcMessage {
 			// inject subscription status to context
-			ctx = context.WithValue(ctx, CtxKeySubscriptionStatus, ss)
+			ctx = context.WithValue(ctx, CtxKeyVipSubscriptionStatus, ss)
 
 			if ss.Error == nil {
 				logrus.WithFields(logrus.Fields{
@@ -144,7 +150,7 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 	return func(next http.Handler) http.Handler {
 		wrapup := func(w http.ResponseWriter, r *http.Request, ss *VipSubscriptionStatus) {
 			// inject subscription status to context
-			ctx := context.WithValue(r.Context(), CtxKeySubscriptionStatus, ss)
+			ctx := context.WithValue(r.Context(), CtxKeyVipSubscriptionStatus, ss)
 			r = r.WithContext(ctx)
 
 			if ss.Error == nil {
