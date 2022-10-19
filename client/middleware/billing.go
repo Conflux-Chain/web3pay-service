@@ -73,7 +73,7 @@ func BillingStatusFromContext(ctx context.Context) (*BillingStatus, bool) {
 
 type BillingMiddlewareOption struct {
 	// we3pay client to request billing gateway (mandatory)
-	Client *client.Client
+	Client *client.BillingClient
 	// provider to get API key from context, use `GetApiKeyFromContext` if not provided
 	ApiKeyProvider authKeyProvider
 	// whether to propagate internal server errors of the requested billing gateway
@@ -83,7 +83,7 @@ type BillingMiddlewareOption struct {
 	PropagateInternalServerError bool
 }
 
-func NewBillingMiddlewareOptionWithClient(client *client.Client) *BillingMiddlewareOption {
+func NewBillingMiddlewareOptionWithClient(client *client.BillingClient) *BillingMiddlewareOption {
 	return (&BillingMiddlewareOption{Client: client}).InitDefault()
 }
 
@@ -104,7 +104,7 @@ type Ow3BillingMiddlewareOption struct {
 	ResourceIdMapper Ow3ResourceIdMapper
 }
 
-func NewOw3BillingMiddlewareOptionWithClient(client *client.Client) *Ow3BillingMiddlewareOption {
+func NewOw3BillingMiddlewareOptionWithClient(client *client.BillingClient) *Ow3BillingMiddlewareOption {
 	return &Ow3BillingMiddlewareOption{
 		BillingMiddlewareOption: NewBillingMiddlewareOptionWithClient(client),
 	}
@@ -175,7 +175,7 @@ type HttpBillingMiddlewareOption struct {
 	ResourceIdMapper HttpResourceIdMapper
 }
 
-func NewHttpBillingMiddlewareOptionWithClient(client *client.Client) *HttpBillingMiddlewareOption {
+func NewHttpBillingMiddlewareOptionWithClient(client *client.BillingClient) *HttpBillingMiddlewareOption {
 	option := &HttpBillingMiddlewareOption{
 		BillingMiddlewareOption: NewBillingMiddlewareOptionWithClient(client),
 	}

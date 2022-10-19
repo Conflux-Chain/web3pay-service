@@ -3,14 +3,12 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"time"
 
+	"github.com/Conflux-Chain/web3pay-service/client"
 	"github.com/Conflux-Chain/web3pay-service/contract"
-	"github.com/Conflux-Chain/web3pay-service/util"
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/Conflux-Chain/web3pay-service/model"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/openweb3/go-rpc-provider"
-	"github.com/openweb3/web3go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -18,95 +16,10 @@ import (
 const (
 	// VIP subscription status context key
 	CtxKeySubscriptionStatus = CtxKey("Web3Pay-Subscription-Status")
-
-	// VIP subscription info cache expiration TTL
-	vipInfoExpirationTTL = 15 * time.Minute
-)
-
-var (
-	chainRpcError = errors.New("blockchain RPC error")
 )
 
 // VipInfo VIP subscription information
 type VipInfo = contract.ICardTrackerVipInfo
-
-// VipSubscriptionClient client to get VIP subscription info
-type VipSubscriptionClient struct {
-	*web3go.Client
-
-	// App contract address
-	app common.Address
-	// card tracker contract stub
-	cardTracker *contract.CardTracker
-	// VIP info cache
-	vipInfoCache *util.ExpirableLruCache
-}
-
-func NewVipSubscriptionClient(w3c *web3go.Client, app common.Address) (*VipSubscriptionClient, error) {
-	clientForContract, _ := w3c.ToClientForContract()
-
-	// App contract stub
-	appContract, err := contract.NewApp(app, clientForContract)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to init `App` contract")
-	}
-
-	// CardShop contract stub
-	cardShop, err := appContract.CardShop(nil)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get `App` card shop")
-	}
-
-	cardShopContract, err := contract.NewCardShop(cardShop, clientForContract)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to init `App` card shop contract")
-	}
-
-	// CardTracker contract stub
-	cardTracker, err := cardShopContract.Tracker(nil)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to get `App` card tracker")
-	}
-
-	cardTrackerContract, err := contract.NewCardTracker(cardTracker, clientForContract)
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to init `App` card tracker contract")
-	}
-
-	lruCache, _ := util.NewExpirableLruCache(apiKeyCacheSize, vipInfoExpirationTTL)
-	return &VipSubscriptionClient{
-		Client: w3c, app: app,
-		cardTracker:  cardTrackerContract,
-		vipInfoCache: lruCache,
-	}, nil
-}
-
-func (c *VipSubscriptionClient) GetVipSubscriptionInfo(apiKey string) (*VipInfo, error) {
-	account, err := util.GetAddrByApiKey(c.app.String(), apiKey)
-	if err != nil {
-		return nil, errors.WithMessage(errInvalidApiKey, err.Error())
-	}
-
-	if v, ok := c.vipInfoCache.Get(apiKey); ok { // hit in cache
-		return v.(*VipInfo), nil
-	}
-
-	lockKey := util.MutexKey(apiKey)
-	util.KLock(lockKey)
-	defer util.KUnlock(lockKey)
-
-	if v, ok := c.vipInfoCache.Get(apiKey); ok { // double check
-		return v.(*VipInfo), nil
-	}
-
-	vi, err := c.cardTracker.GetVipInfo(nil, account)
-	if err != nil {
-		return nil, errors.WithMessage(chainRpcError, err.Error())
-	}
-
-	c.vipInfoCache.Add(apiKey, &vi)
-	return &vi, err
-}
 
 // VipSubscriptionStatus VIP subscription status
 type VipSubscriptionStatus struct {
@@ -134,19 +47,29 @@ func (ss *VipSubscriptionStatus) GetVipInfo() (*VipInfo, error) {
 	return ss.VipInfo, nil
 }
 
-type VipSubscriptionMiddlewareOption struct {
-	// client to request VIP subscription info from the blockchain network (mandatory)
-	Client *VipSubscriptionClient
-	// provider to get API key from context, use `GetApiKeyFromContext` if not provided
-	ApiKeyProvider authKeyProvider
-	// whether to propagate RPC errors of the requested blockchain network endpoint
-	// to the already subscribed users, default as false which will pretend nothing wrong
-	// happened except some error logs will be printed. This is usually used to mitigate
-	// side effects such as blocking paid user from access due to internal server errors.
-	PropagateChainRpcError bool
+// BusinessError returns business error as it is otherwise nil
+func (bs *VipSubscriptionStatus) BusinessError() (*model.BusinessError, bool) {
+	var bzerr *model.BusinessError
+	if errors.As(bs.Error, &bzerr) {
+		return bzerr, true
+	}
+
+	return nil, false
 }
 
-func NewVipSubscriptionMiddlewareOptionWithClient(client *VipSubscriptionClient) *VipSubscriptionMiddlewareOption {
+type VipSubscriptionMiddlewareOption struct {
+	// client to request VIP subscription info from the blockchain network (mandatory)
+	Client *client.VipSubscriptionClient
+	// provider to get API key from context, use `GetApiKeyFromContext` if not provided
+	ApiKeyProvider authKeyProvider
+	// whether to propagate non-business error to the already subscribed users, default as
+	// false which will pretend nothing wrong happened except some error logs will be printed.
+	// This is usually used to mitigate side effects such as blocking paid user from access
+	// due to some server errors (such as timeout etc.,)
+	PropagateNonBusinessError bool
+}
+
+func NewVipSubscriptionMiddlewareOptionWithClient(client *client.VipSubscriptionClient) *VipSubscriptionMiddlewareOption {
 	return (&VipSubscriptionMiddlewareOption{Client: client}).InitDefault()
 }
 
@@ -176,9 +99,9 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 				return next(ctx, msg)
 			}
 
-			// handle blockchain RPC error
-			if err := ss.Error; errors.Is(err, chainRpcError) {
-				if !option.PropagateChainRpcError {
+			// handle non business error
+			if err, ok := ss.BusinessError(); !ok {
+				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
 						ss.VipInfo = v.(*VipInfo)
 						ss.skipError = true
@@ -186,10 +109,10 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 				}
 
 				logrus.WithFields(logrus.Fields{
-					"msg":                    msg,
-					"skipError":              ss.skipError,
-					"PropagateChainRpcError": option.PropagateChainRpcError,
-				}).WithError(err).Error("VIP subscription middleware chain RPC error")
+					"msg":                       msg,
+					"skipError":                 ss.skipError,
+					"propagateNonBusinessError": option.PropagateNonBusinessError,
+				}).WithError(err).Error("VIP subscription middleware non-business error")
 			}
 
 			return next(ctx, msg)
@@ -234,9 +157,9 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 				return
 			}
 
-			// handle blockchain RPC error
-			if err := ss.Error; errors.Is(err, chainRpcError) {
-				if !option.PropagateChainRpcError {
+			// handle non business error
+			if err, ok := ss.BusinessError(); !ok {
+				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
 						ss.VipInfo = v.(*VipInfo)
 						ss.skipError = true
@@ -244,10 +167,10 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 				}
 
 				logrus.WithFields(logrus.Fields{
-					"request":                r,
-					"skipError":              ss.skipError,
-					"PropagateChainRpcError": option.PropagateChainRpcError,
-				}).WithError(err).Error("VIP subscription middleware chain RPC error")
+					"request":                   r,
+					"skipError":                 ss.skipError,
+					"propagateNonBusinessError": option.PropagateNonBusinessError,
+				}).WithError(err).Error("VIP subscription middleware non-business error")
 			}
 
 			next.ServeHTTP(w, r)

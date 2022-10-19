@@ -12,10 +12,10 @@ import (
 )
 
 type demoConfig struct {
-	client.ClientConfig `mapstructure:",squash"`
-	ApiKey              string
-	ServerPort          int
-	RpcStyle            string
+	client.BillingClientConfig `mapstructure:",squash"`
+	ApiKey                     string
+	ServerPort                 int
+	RpcStyle                   string
 }
 
 var (
@@ -109,7 +109,7 @@ func startRestfulProvider() {
 	logrus.WithField("listenPort", demoConf.ServerPort).
 		Info("Starting demo RESTful billed service provider...")
 
-	err := demo.RunRestfulServiceProvider(demoConf.ClientConfig, demoConf.ServerPort)
+	err := demo.RunRestfulServiceProvider(demoConf.BillingClientConfig, demoConf.ServerPort)
 	if err != nil {
 		logrus.WithField("demoConfig", demoConf).
 			Info("Failed to serve RESTful billed service provider")
@@ -120,7 +120,7 @@ func startJsonRpcProvider() {
 	logrus.WithField("listenPort", demoConf.ServerPort).
 		Info("Starting demo JSON-RPC billed service provider...")
 
-	err := demo.RunJsonRpcServiceProvider(demoConf.ClientConfig, demoConf.ServerPort)
+	err := demo.RunJsonRpcServiceProvider(demoConf.BillingClientConfig, demoConf.ServerPort)
 	if err != nil {
 		logrus.WithField("demoConfig", demoConf).
 			Info("Failed to serve JSON-RPC billed service provider")

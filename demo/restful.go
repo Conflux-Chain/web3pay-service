@@ -36,12 +36,12 @@ func testBilling(rw http.ResponseWriter, req *http.Request) {
 }
 
 // RunRestfulServiceProvider runs a demo RESTful server to provide billed service.
-func RunRestfulServiceProvider(config web3pay.ClientConfig, port int) error {
+func RunRestfulServiceProvider(config web3pay.BillingClientConfig, port int) error {
 	mux := http.NewServeMux()
 	mux.Handle("/", http.HandlerFunc(testBilling))
 
 	// create web3pay client
-	client, err := web3pay.NewClient(config)
+	client, err := web3pay.NewBillingClient(config)
 	if err != nil {
 		return errors.WithMessage(err, "failed to new web3pay client")
 	}

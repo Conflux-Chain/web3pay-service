@@ -33,9 +33,9 @@ func (api *jrDemoApi) TestBilling(ctx context.Context) (string, error) {
 }
 
 // RunJsonRpcServiceProvider runs a demo JSON-RPC server to provide billed service.
-func RunJsonRpcServiceProvider(config web3pay.ClientConfig, port int) error {
+func RunJsonRpcServiceProvider(config web3pay.BillingClientConfig, port int) error {
 	// create web3pay client
-	client, err := web3pay.NewClient(config)
+	client, err := web3pay.NewBillingClient(config)
 	if err != nil {
 		return errors.WithMessage(err, "failed to new web3pay client")
 	}
