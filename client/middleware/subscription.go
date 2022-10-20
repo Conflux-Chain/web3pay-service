@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/Conflux-Chain/web3pay-service/client"
-	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/types.go"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"
@@ -18,15 +18,12 @@ const (
 	CtxKeyVipSubscriptionStatus = CtxKey("Web3Pay-Vip-Subscription-Status")
 )
 
-// VipInfo VIP subscription information
-type VipInfo = contract.ICardTrackerVipInfo
-
 // VipSubscriptionStatus VIP subscription status
 type VipSubscriptionStatus struct {
-	VipInfo   *VipInfo // VIP info
-	Error     error    // subscription error
-	skipError bool     // skip any error pretending to be successful
-	apiKey    string   // subscription API key
+	VipInfo   *types.VipInfo // VIP info
+	Error     error          // subscription error
+	skipError bool           // skip any error pretending to be successful
+	apiKey    string         // subscription API key
 }
 
 // create subscription status from error
@@ -35,11 +32,11 @@ func NewVipSubscriptionStatusWithError(apiKey string, err error) *VipSubscriptio
 }
 
 // create subscription status from subscription VIP info
-func NewVipSubscriptionStatusWithInfo(apiKey string, vi *VipInfo) *VipSubscriptionStatus {
+func NewVipSubscriptionStatusWithInfo(apiKey string, vi *types.VipInfo) *VipSubscriptionStatus {
 	return &VipSubscriptionStatus{apiKey: apiKey, VipInfo: vi}
 }
 
-func (ss *VipSubscriptionStatus) GetVipInfo() (*VipInfo, error) {
+func (ss *VipSubscriptionStatus) GetVipInfo() (*types.VipInfo, error) {
 	if ss.Error != nil && !ss.skipError {
 		return nil, ss.Error
 	}
@@ -109,7 +106,7 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 			if err, ok := ss.BusinessError(); !ok {
 				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
-						ss.VipInfo = v.(*VipInfo)
+						ss.VipInfo = v.(*types.VipInfo)
 						ss.skipError = true
 					}
 				}
@@ -167,7 +164,7 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 			if err, ok := ss.BusinessError(); !ok {
 				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
-						ss.VipInfo = v.(*VipInfo)
+						ss.VipInfo = v.(*types.VipInfo)
 						ss.skipError = true
 					}
 				}

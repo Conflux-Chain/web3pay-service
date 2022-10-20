@@ -16,6 +16,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/types.go"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"
@@ -102,8 +103,8 @@ func MetricsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func parseBillingKey(r *http.Request) (*model.BillingAuthKey, error) {
-	billingKeyStr := r.Header.Get(model.AuthHeaderBillingKey)
+func parseBillingKey(r *http.Request) (*types.BillingAuthKey, error) {
+	billingKeyStr := r.Header.Get(types.AuthHeaderBillingKey)
 	if len(billingKeyStr) < 260 {
 		return nil, errors.New("key bytes too short")
 	}
@@ -111,8 +112,8 @@ func parseBillingKey(r *http.Request) (*model.BillingAuthKey, error) {
 	return util.ParseBillingKey(billingKeyStr)
 }
 
-func parseApiKey(r *http.Request) (*model.ApiAuthKey, error) {
-	apiKeyStr := r.Header.Get(model.AuthHeaderApiKey)
+func parseApiKey(r *http.Request) (*types.ApiAuthKey, error) {
+	apiKeyStr := r.Header.Get(types.AuthHeaderApiKey)
 	if len(apiKeyStr) < 89 {
 		return nil, errors.New("key bytes too short")
 	}

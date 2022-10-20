@@ -8,6 +8,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/contract"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
+	"github.com/Conflux-Chain/web3pay-service/types.go"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/mcuadros/go-defaults"
@@ -43,7 +44,7 @@ func NewBillingClient(conf BillingClientConfig) (*BillingClient, error) {
 		&jsonrpc.RPCClientOpts{
 			Timeout: conf.Timeout,
 			CustomHeaders: map[string]string{
-				model.AuthHeaderBillingKey: conf.BillingKey,
+				types.AuthHeaderBillingKey: conf.BillingKey,
 			},
 		},
 	)
@@ -67,7 +68,7 @@ func (c *BillingClient) Bill(
 	ctx context.Context, resourceId string, dryRun bool, apikey string) (*service.BillingReceipt, error) {
 
 	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
-		model.AuthHeaderApiKey: apikey,
+		types.AuthHeaderApiKey: apikey,
 	})
 
 	args := &service.BillingRequest{
@@ -87,7 +88,7 @@ func (c *BillingClient) BillBatch(
 	ctx context.Context, resourceUses map[string]int64, dryRun bool, apikey string) (*service.BillingBatchReceipt, error) {
 
 	ctx = jsonrpc.NewContextWithCustomHeaders(ctx, map[string]string{
-		model.AuthHeaderApiKey: apikey,
+		types.AuthHeaderApiKey: apikey,
 	})
 
 	args := &service.BillingBatchRequest{
@@ -201,14 +202,14 @@ func NewVipSubscriptionClient(conf VipSubscriptionClientConfig) (*VipSubscriptio
 	}, nil
 }
 
-func (c *VipSubscriptionClient) GetVipSubscriptionInfo(apiKey string) (*VipInfo, error) {
+func (c *VipSubscriptionClient) GetVipSubscriptionInfo(apiKey string) (*types.VipInfo, error) {
 	account, err := util.GetAddrByApiKey(c.AppContract, apiKey)
 	if err != nil {
 		return nil, model.ErrAuth.WithData(err.Error())
 	}
 
 	if v, ok := c.vipInfoCache.Get(apiKey); ok { // hit in cache
-		return v.(*VipInfo), nil
+		return v.(*types.VipInfo), nil
 	}
 
 	lockKey := util.MutexKey("vipsub/" + apiKey)
@@ -216,14 +217,19 @@ func (c *VipSubscriptionClient) GetVipSubscriptionInfo(apiKey string) (*VipInfo,
 	defer util.KUnlock(lockKey)
 
 	if v, ok := c.vipInfoCache.Get(apiKey); ok { // double check
-		return v.(*VipInfo), nil
+		return v.(*types.VipInfo), nil
 	}
 
-	vi, err := c.cardTracker.GetVipInfo(nil, account)
+	cardVi, err := c.cardTracker.GetVipInfo(nil, account)
 	if err != nil {
 		return nil, err
 	}
 
+	vi := types.VipInfo{
+		ICardTrackerVipInfo: cardVi,
+		Account:             account,
+	}
 	c.vipInfoCache.Add(apiKey, &vi)
+
 	return &vi, nil
 }

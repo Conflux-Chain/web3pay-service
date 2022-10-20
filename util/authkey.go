@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/Conflux-Chain/web3pay-service/model"
+	"github.com/Conflux-Chain/web3pay-service/types.go"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -60,7 +60,7 @@ func (m *AuthKeyManager) getApiAuthMessage(contract string) (string, error) {
 	return msg, nil
 }
 
-func (m *AuthKeyManager) GetAddrByApiAuthKey(contract string, apiKey *model.ApiAuthKey) (common.Address, error) {
+func (m *AuthKeyManager) GetAddrByApiAuthKey(contract string, apiKey *types.ApiAuthKey) (common.Address, error) {
 	cacheKey := crypto.Keccak256Hash([]byte(contract + apiKey.Sig))
 
 	return m.getAddrByCacheKey(cacheKey.String(), func() (common.Address, error) {
@@ -78,7 +78,7 @@ func (m *AuthKeyManager) GetAddrByApiAuthKey(contract string, apiKey *model.ApiA
 	})
 }
 
-func (m *AuthKeyManager) GetAddrByBillingAuthKey(billingKey *model.BillingAuthKey) (common.Address, error) {
+func (m *AuthKeyManager) GetAddrByBillingAuthKey(billingKey *types.BillingAuthKey) (common.Address, error) {
 	cacheKey := crypto.Keccak256Hash([]byte(billingKey.Msg + billingKey.Sig))
 
 	return m.getAddrByCacheKey(cacheKey.String(), func() (common.Address, error) {
@@ -119,7 +119,7 @@ func getApiAuthMessage(contract string) (string, error) {
 	return stdAuthKeyManager.getApiAuthMessage(contract)
 }
 
-func GetAddrByApiAuthKey(contract string, apiKey *model.ApiAuthKey) (common.Address, error) {
+func GetAddrByApiAuthKey(contract string, apiKey *types.ApiAuthKey) (common.Address, error) {
 	return stdAuthKeyManager.GetAddrByApiAuthKey(contract, apiKey)
 }
 
@@ -132,7 +132,7 @@ func GetAddrByApiKey(contract, apiKey string) (common.Address, error) {
 	return stdAuthKeyManager.GetAddrByApiAuthKey(contract, key)
 }
 
-func GetAddrByBillingAuthKey(billingKey *model.BillingAuthKey) (common.Address, error) {
+func GetAddrByBillingAuthKey(billingKey *types.BillingAuthKey) (common.Address, error) {
 	return stdAuthKeyManager.GetAddrByBillingAuthKey(billingKey)
 }
 
@@ -172,13 +172,13 @@ func BuildApiKey(appContract string, consumerPrivateKeyText string) (string, err
 	return apiKey, nil
 }
 
-func ParseApiKey(apiKey string) (*model.ApiAuthKey, error) {
+func ParseApiKey(apiKey string) (*types.ApiAuthKey, error) {
 	sig := base58.Decode(apiKey)
 	if len(sig) < 65 {
 		return nil, errors.New("signature bytes too short")
 	}
 
-	return &model.ApiAuthKey{Sig: hexutil.Encode(sig)}, nil
+	return &types.ApiAuthKey{Sig: hexutil.Encode(sig)}, nil
 }
 
 // BuildBillingKey utility function to help build billing key with specified APP contract address
@@ -197,7 +197,7 @@ func BuildBillingKey(appContract string, ownerPrivateKeyText string) (string, er
 	}
 
 	// json marshal auth key
-	authKeyObj, err := json.Marshal(model.BillingAuthKey{
+	authKeyObj, err := json.Marshal(types.BillingAuthKey{
 		Msg: appContract, Sig: sig,
 	})
 	if err != nil {
@@ -209,13 +209,13 @@ func BuildBillingKey(appContract string, ownerPrivateKeyText string) (string, er
 	return billKey, nil
 }
 
-func ParseBillingKey(billingKey string) (*model.BillingAuthKey, error) {
+func ParseBillingKey(billingKey string) (*types.BillingAuthKey, error) {
 	keyJson, err := base64.StdEncoding.DecodeString(billingKey)
 	if err != nil {
 		return nil, errors.WithMessage(err, "base64 decode error")
 	}
 
-	var key model.BillingAuthKey
+	var key types.BillingAuthKey
 	if err := json.Unmarshal(keyJson, &key); err != nil {
 		return nil, errors.WithMessage(err, "json decode error")
 	}
