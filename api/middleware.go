@@ -16,7 +16,7 @@ import (
 	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
 	"github.com/Conflux-Chain/web3pay-service/service"
-	"github.com/Conflux-Chain/web3pay-service/types.go"
+	"github.com/Conflux-Chain/web3pay-service/types"
 	"github.com/Conflux-Chain/web3pay-service/util"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gorilla/mux"

@@ -6,7 +6,7 @@ import (
 
 	"github.com/Conflux-Chain/web3pay-service/client"
 	"github.com/Conflux-Chain/web3pay-service/model"
-	"github.com/Conflux-Chain/web3pay-service/types.go"
+	"github.com/Conflux-Chain/web3pay-service/types"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/openweb3/go-rpc-provider"
 	"github.com/pkg/errors"

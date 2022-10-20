@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/Conflux-Chain/web3pay-service/types.go"
+	"github.com/Conflux-Chain/web3pay-service/types"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
