@@ -8,7 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/rpc"
+	w3types "github.com/openweb3/web3go/types"
 	"github.com/patrickmn/go-cache"
 	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
@@ -107,7 +107,7 @@ func (bs *BlockchainService) Deposit() {
 		}
 
 		// validate block hash
-		block, err := bs.provider.BlockByNumber(rpc.BlockNumber(depositReq.BlockNumber), false)
+		block, err := bs.provider.BlockByNumber(w3types.BlockNumber(depositReq.BlockNumber), false)
 		if err != nil {
 			logger.Info("Failed to get block by number to validate deposit txn")
 
