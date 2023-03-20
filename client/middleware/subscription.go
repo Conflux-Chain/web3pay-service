@@ -45,7 +45,7 @@ func (ss *VipSubscriptionStatus) GetVipInfo() (*types.VipInfo, error) {
 }
 
 // BusinessError returns business error as it is otherwise nil
-func (bs *VipSubscriptionStatus) BusinessError() (*model.BusinessError, bool) {
+func (bs *VipSubscriptionStatus) BusinessError() (error, bool) {
 	var bzerr *model.BusinessError
 	if errors.As(bs.Error, &bzerr) {
 		return bzerr, true
@@ -161,7 +161,7 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 			}
 
 			// handle non business error
-			if err, ok := ss.BusinessError(); !ok {
+			if _, ok := ss.BusinessError(); !ok {
 				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
 						ss.VipInfo = v.(*types.VipInfo)
@@ -173,7 +173,7 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 					"request":                   r,
 					"skipError":                 ss.skipError,
 					"propagateNonBusinessError": option.PropagateNonBusinessError,
-				}).WithError(err).Error("VIP subscription middleware non-business error")
+				}).WithError(ss.Error).Error("VIP subscription middleware non-business error")
 			}
 
 			next.ServeHTTP(w, r)
