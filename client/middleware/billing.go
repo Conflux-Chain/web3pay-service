@@ -48,7 +48,11 @@ func (bs *BillingStatus) InternalServerError() (error, bool) {
 	}
 
 	bzerr, ok := bs.BusinessError()
-	if !ok || bzerr.Code == model.ErrInternalServer.Code {
+	if !ok { // regarded as internal server error if not business error
+		return bs.Error, true
+	}
+
+	if err := bzerr.(*model.BusinessError); err.Code == model.ErrInternalServer.Code {
 		return bs.Error, true
 	}
 
@@ -56,7 +60,7 @@ func (bs *BillingStatus) InternalServerError() (error, bool) {
 }
 
 // BusinessError returns business error as it is otherwise nil
-func (bs *BillingStatus) BusinessError() (*model.BusinessError, bool) {
+func (bs *BillingStatus) BusinessError() (error, bool) {
 	var bzerr *model.BusinessError
 	if errors.As(bs.Error, &bzerr) {
 		return bzerr, true
@@ -120,7 +124,7 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 			// inject billing status to context
 			ctx = context.WithValue(ctx, CtxKeyBillingStatus, bs)
 
-			if bs.Error == nil { // billing successfully?
+			if bs.Success() { // billing successfully?
 				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
 				billingApiKeyCache.Add(bs.apiKey, struct{}{})
 				return next(ctx, msg)
