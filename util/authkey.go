@@ -6,12 +6,16 @@ import (
 	"sync"
 
 	"github.com/Conflux-Chain/web3pay-service/types"
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/pkg/errors"
+
+	// Unfortunately we couldn't use `github.com/btcsuite/btcd/btcutil/base58` directly due to
+	// the conflict with the minimum golang version requirements. So we copy the `base58` folder
+	// directly to the project as an utility package.
+	"github.com/Conflux-Chain/web3pay-service/util/base58"
 )
 
 const sigAddressCacheSize = 50_000
