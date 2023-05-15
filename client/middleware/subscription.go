@@ -103,7 +103,7 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 			}
 
 			// handle non business error
-			if err, ok := ss.BusinessError(); !ok {
+			if _, ok := ss.BusinessError(); !ok {
 				if !option.PropagateNonBusinessError {
 					if v, ok := vipApiKeyCache.Get(ss.apiKey); ok {
 						ss.VipInfo = v.(*types.VipInfo)
@@ -115,7 +115,7 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 					"msg":                       msg,
 					"skipError":                 ss.skipError,
 					"propagateNonBusinessError": option.PropagateNonBusinessError,
-				}).WithError(err).Error("VIP subscription middleware non-business error")
+				}).WithError(ss.Error).Info("VIP subscription middleware non-business error")
 			}
 
 			return next(ctx, msg)
@@ -173,7 +173,7 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 					"request":                   r,
 					"skipError":                 ss.skipError,
 					"propagateNonBusinessError": option.PropagateNonBusinessError,
-				}).WithError(ss.Error).Error("VIP subscription middleware non-business error")
+				}).WithError(ss.Error).Info("VIP subscription middleware non-business error")
 			}
 
 			next.ServeHTTP(w, r)

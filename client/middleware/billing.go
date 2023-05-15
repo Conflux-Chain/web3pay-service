@@ -137,9 +137,10 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 				}
 
 				logrus.WithFields(logrus.Fields{
-					"msg": msg, "skipError": bs.skipError,
+					"msg":                          msg,
+					"skipError":                    bs.skipError,
 					"propagateInternalServerError": option.PropagateInternalServerError,
-				}).WithError(err).Error("Billing middleware internal server error")
+				}).WithError(err).Info("Billing middleware internal server error")
 			}
 
 			return next(ctx, msg)
@@ -224,9 +225,10 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 				}
 
 				logrus.WithFields(logrus.Fields{
-					"request": r, "skipError": bs.skipError,
+					"request":                      r,
+					"skipError":                    bs.skipError,
 					"propagateInternalServerError": option.PropagateInternalServerError,
-				}).WithError(err).Error("Billing middleware internal server error")
+				}).WithError(err).Info("Billing middleware internal server error")
 			}
 
 			next.ServeHTTP(w, r)
