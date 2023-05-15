@@ -3,6 +3,7 @@ package util
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"sync"
 
 	"github.com/Conflux-Chain/web3pay-service/types"
@@ -172,7 +173,24 @@ func BuildApiKey(appContract string, consumerPrivateKeyText string) (string, err
 	return apiKey, nil
 }
 
+// alphabet is the modified base58 alphabet used by Bitcoin.
+const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+func isBase58EncodedString(str string) bool {
+	for _, rb := range str {
+		if !strings.ContainsRune(base58Alphabet, rb) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func ParseApiKey(apiKey string) (*types.ApiAuthKey, error) {
+	if !isBase58EncodedString(apiKey) {
+		return nil, errors.New("malformed encoded key")
+	}
+
 	sig := base58.Decode(apiKey)
 	if len(sig) < 65 {
 		return nil, errors.New("signature bytes too short")
