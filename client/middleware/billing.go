@@ -118,6 +118,7 @@ func NewOw3BillingMiddlewareOptionWithClient(client *client.BillingClient) *Ow3B
 func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware {
 	// cache billing API keys
 	billingApiKeyCache, _ := lru.New(apiKeyCacheSize)
+	continuousErrCount := 0
 
 	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, bs *BillingStatus) *rpc.JsonRpcMessage {
@@ -126,6 +127,8 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 
 			if bs.Success() { // billing successfully?
 				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
+
+				continuousErrCount = 0
 				billingApiKeyCache.Add(bs.apiKey, struct{}{})
 				return next(ctx, msg)
 			}
@@ -136,11 +139,18 @@ func Openweb3BillingMiddleware(option *Ow3BillingMiddlewareOption) Ow3Middleware
 					_, bs.skipError = billingApiKeyCache.Get(bs.apiKey)
 				}
 
-				logrus.WithFields(logrus.Fields{
+				logger := logrus.WithFields(logrus.Fields{
 					"msg":                          msg,
 					"skipError":                    bs.skipError,
 					"propagateInternalServerError": option.PropagateInternalServerError,
-				}).WithError(err).Info("Billing middleware internal server error")
+				}).WithError(err)
+
+				logf := logger.Info
+				if continuousErrCount++; continuousErrCount%maxContinuousErrsForAlert == 0 {
+					logf = logger.WithField("continuousErrCount", continuousErrCount).Error
+				}
+
+				logf("Billing middleware internal server error")
 			}
 
 			return next(ctx, msg)
@@ -204,6 +214,7 @@ func (option *HttpBillingMiddlewareOption) InitDefault() *HttpBillingMiddlewareO
 func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 	// cache billing API keys
 	billingApiKeyCache, _ := lru.New(apiKeyCacheSize)
+	continuousErrCount := 0
 
 	return func(next http.Handler) http.Handler {
 		wrapup := func(w http.ResponseWriter, r *http.Request, bs *BillingStatus) {
@@ -213,6 +224,8 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 
 			if bs.Error == nil { // billing successfull
 				logrus.WithField("receipt", bs.Receipt).Debug("Billing middleware billed successfully")
+
+				continuousErrCount = 0
 				billingApiKeyCache.Add(bs.apiKey, struct{}{})
 				next.ServeHTTP(w, r)
 				return
@@ -224,11 +237,18 @@ func HttpBillingMiddleware(option *HttpBillingMiddlewareOption) HttpMiddleware {
 					_, bs.skipError = billingApiKeyCache.Get(bs.apiKey)
 				}
 
-				logrus.WithFields(logrus.Fields{
+				logger := logrus.WithFields(logrus.Fields{
 					"request":                      r,
 					"skipError":                    bs.skipError,
 					"propagateInternalServerError": option.PropagateInternalServerError,
-				}).WithError(err).Info("Billing middleware internal server error")
+				}).WithError(err)
+
+				logf := logger.Info
+				if continuousErrCount++; continuousErrCount%maxContinuousErrsForAlert == 0 {
+					logf = logger.WithField("continuousErrCount", continuousErrCount).Error
+				}
+
+				logf("Billing middleware internal server error")
 			}
 
 			next.ServeHTTP(w, r)
