@@ -16,6 +16,7 @@ import (
 const (
 	// VIP subscription status context key
 	CtxKeyVipSubscriptionStatus = CtxKey("Web3Pay-Vip-Subscription-Status")
+	maxContinuousErrsForAlert   = 10
 )
 
 // VipSubscriptionStatus VIP subscription status
@@ -87,6 +88,7 @@ func (option *VipSubscriptionMiddlewareOption) InitDefault() *VipSubscriptionMid
 func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Ow3Middleware {
 	// cache subscription VIP API keys
 	vipApiKeyCache, _ := lru.New(apiKeyCacheSize)
+	continuousErrCount := 0
 
 	return func(next rpc.HandleCallMsgFunc) rpc.HandleCallMsgFunc {
 		wrapup := func(ctx context.Context, msg *rpc.JsonRpcMessage, ss *VipSubscriptionStatus) *rpc.JsonRpcMessage {
@@ -98,6 +100,8 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 					"apiKey":  ss.apiKey,
 					"vipInfo": ss.VipInfo,
 				}).Debug("VIP subscription middleware called successfully")
+
+				continuousErrCount = 0
 				vipApiKeyCache.Add(ss.apiKey, ss.VipInfo)
 				return next(ctx, msg)
 			}
@@ -111,11 +115,18 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 					}
 				}
 
-				logrus.WithFields(logrus.Fields{
+				logger := logrus.WithFields(logrus.Fields{
 					"msg":                       msg,
 					"skipError":                 ss.skipError,
 					"propagateNonBusinessError": option.PropagateNonBusinessError,
-				}).WithError(ss.Error).Info("VIP subscription middleware non-business error")
+				}).WithError(ss.Error)
+
+				logf := logger.Info
+				if continuousErrCount++; continuousErrCount%maxContinuousErrsForAlert == 0 {
+					logf = logger.WithField("continuousErrCount", continuousErrCount).Error
+				}
+
+				logf("VIP subscription middleware non-business error")
 			}
 
 			return next(ctx, msg)
@@ -143,6 +154,7 @@ func Openweb3VipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) 
 func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) HttpMiddleware {
 	// cache subscription VIP API keys
 	vipApiKeyCache, _ := lru.New(apiKeyCacheSize)
+	continuousErrCount := 0
 
 	return func(next http.Handler) http.Handler {
 		wrapup := func(w http.ResponseWriter, r *http.Request, ss *VipSubscriptionStatus) {
@@ -155,6 +167,8 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 					"apiKey":  ss.apiKey,
 					"vipInfo": ss.VipInfo,
 				}).Debug("VIP subscription middleware called successfully")
+
+				continuousErrCount = 0
 				vipApiKeyCache.Add(ss.apiKey, ss.VipInfo)
 				next.ServeHTTP(w, r)
 				return
@@ -169,11 +183,18 @@ func HttpVipSubscriptionMiddleware(option *VipSubscriptionMiddlewareOption) Http
 					}
 				}
 
-				logrus.WithFields(logrus.Fields{
+				logger := logrus.WithFields(logrus.Fields{
 					"request":                   r,
 					"skipError":                 ss.skipError,
 					"propagateNonBusinessError": option.PropagateNonBusinessError,
-				}).WithError(ss.Error).Info("VIP subscription middleware non-business error")
+				}).WithError(ss.Error)
+
+				logf := logger.Info
+				if continuousErrCount++; continuousErrCount%maxContinuousErrsForAlert == 0 {
+					logf = logger.WithField("continuousErrCount", continuousErrCount).Error
+				}
+
+				logf("VIP subscription middleware non-business error")
 			}
 
 			next.ServeHTTP(w, r)
