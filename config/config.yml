@@ -5,44 +5,77 @@ eth:
   # retryInterval: 1s
   # requestTimeout: 3s
 
-# Store Configurations
-store:
-  sqlite:
-    # Use in-memory sqlite as default.
-    # You can also specify path to a file (eg., `gorm.db`) for disk persistence.
-    # database: file::memory:?cache=shared
+# # Store Configurations
+# store:
+#   sqlite:
+#     Use in-memory sqlite as default.
+#     You can also specify path to a file (eg., `gorm.db`) for disk persistence.
+#     database: file::memory:?cache=shared
 
-# Metrics Configurations
-metrics:
-  enabled: false
-  namespace: web3pay
-  influxdb:
-    host: http://127.0.0.1:8086
-    db:   web3pay
-    username:
-    password:
-  report:
-    enabled: false
-    interval: 10s
+# # Metrics configurations
+# metrics:
+#   # Whether to collect metrics
+#   enabled: false
+#   # Namespace for metrics reporting
+#   namespace: web3pay
+#   # Interval to report collected metrics to InfluxDB periodically
+#   reportInterval: 10s
+#   # InfluxDB configurations
+#   influxdb:
+#     host: http://127.0.0.1:8086
+#     db: web3pay
+#     username:
+#     password:
 
-# Logs Configurations
-log:
-  level: info
+# # Log Configurations
+# log:
+#   # Available levels are `trace`, `debug`, `info`, `error` and `fatal`
+#   level: info
+#   forceColor: false
+#   disableColor: false
+#   alertHook: # Alert hooking settings
+#     # Hooked logrus level for alert notification
+#     level: warn
+#     # Default notification channels
+#     channels: []
+#     # Maximum request timeout allowed to send alert.
+#     sendTimeout: 3s
+#     # Async worker options for sending alert
+#     async:
+#       # The number of worker goroutines (Set to 0 to disable async mode).
+#       numWorkers: 0
+#       # The maximum number of queued jobs.
+#       queueSize: 60
+#       # Maximum timeout allowed to gracefully stop.
+#       StopTimeout: 5s
 
-# Alert Configurations
-alert:
-  customTags: [web3pay, test]
-  dingtalk:
-    enabled: false
-    webhook: https://oapi.dingtalk.com/robot/send?access_token=${test_access_token}
-    secret: ${test_secret}
-    atMobiles: []
-    isAtAll: false
+# # Alert configurations
+# alert:
+#   # Custom tags are used to distinguish between different networks and environments.
+#   # For example, they can be used to differentiate between mainnet/testnet, prod/test/dev, etc.
+#   customTags: [web3pay,test]
+#   # Channels are used for sending notifications.
+#   # Each channel is identified by a unique key (e.g., channel ID), which is case insensitive.
+#   # The value for each key is the configuration for that channel.
+#   channels:
+#     # Example configuration for the DingTalk robot channel
+#     dingrobot:
+#       # The type of the channel. In this case, it's 'dingtalk'.
+#       platform: dingtalk
+#       # The webhook URL for the DingTalk robot.
+#       webhook: https://oapi.dingtalk.com/robot/send?access_token=${your_access_token}
+#       # The secret key for the DingTalk robot.
+#       secret: ${your_access_secret}
+#       # List of mobile numbers to be mentioned in the alert. If empty, no one is mentioned.
+#       atMobiles: []
+#       # If set to true, all members are mentioned in the alert. If false, only the members
+#       # in 'atMobiles' are mentioned.
+#       isAtAll: false
 
-# API Configurations
-api:
-  # The endpoint for serving Restful or JSON-RPC
-  # endpoint: :8080
+# # API Configurations
+# api:
+#   The endpoint for serving Restful or JSON-RPC
+#   endpoint: :8080
 
 # Blockchain Configurations
 blockchain:
@@ -59,20 +92,20 @@ blockchain:
   # operator balance checking threshold (CFX)
   # operatorBalanceCheckThreshold: 15
 
-# Worker configurations
-worker:
-  # Bill polling interval for blockchain settlement.
-  # pollingInterval: 1m
-  # Number of bills polled per time.
-  # pollingBatchSize: 20
-  # Maximum num of retries for blockchain settlement if failed.
-  # maxSettlementRetries: 5
-  # Minimum confirmed blocks for settlement.
-  # minConfirmedBlocks: 30
-  # Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
-  # maxPendingAwaitDuration: 30s
-  # Whether to persist billing tasks to local JSON files on worker shut down.
-  # persistOnShutdown: false
-  # The persistence path for local JSON of billing tasks, valid only if `persistOnShutdown`
-  # switch is on.
-  # persistencePath: ./wdata
+# # Worker configurations
+# worker:
+#   Bill polling interval for blockchain settlement.
+#   pollingInterval: 1m
+#   Number of bills polled per time.
+#   pollingBatchSize: 20
+#   Maximum num of retries for blockchain settlement if failed.
+#   maxSettlementRetries: 5
+#   Minimum confirmed blocks for settlement.
+#   minConfirmedBlocks: 30
+#   Maxinum pending await duration, once execeeded the settlement will be regarded as failure.
+#   maxPendingAwaitDuration: 30s
+#   Whether to persist billing tasks to local JSON files on worker shut down.
+#   persistOnShutdown: false
+#   The persistence path for local JSON of billing tasks, valid only if `persistOnShutdown`
+#   switch is on.
+#   persistencePath: ./wdata

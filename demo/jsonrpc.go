@@ -88,7 +88,7 @@ func runJsonRpcDemoApiServer(port int) error {
 	kContextInjector := middleware.ApiKeyContextInjector(GetApiKey)
 	ctxInjectMw := middleware.HttpInjectContextMiddleware(kContextInjector)
 	server := http.Server{
-		Handler: ctxInjectMw(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"})),
+		Handler: ctxInjectMw(node.NewHTTPHandlerStack(handler, []string{"*"}, []string{"*"}, nil)),
 	}
 
 	// listen endpoint
