@@ -3,7 +3,7 @@ module github.com/Conflux-Chain/web3pay-service
 go 1.22
 
 require (
-	github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20240718082304-6c749d77bd5a
+	github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20241011103527-e8cea809b65b
 	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.14.5
 	github.com/gammazero/workerpool v1.1.2

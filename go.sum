@@ -55,8 +55,8 @@ github.com/Azure/go-autorest/logger v0.1.0/go.mod h1:oExouG+K6PryycPJfVSxi/koC6L
 github.com/Azure/go-autorest/tracing v0.5.0/go.mod h1:r/s2XiOKccPW3HrqB+W0TQzfbtp2fGCgRFtBroKn4Dk=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
-github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20240718082304-6c749d77bd5a h1:3ZiUTUU/rNkjKh3uHzfL6qcm0uLZg+1hGzUcapg0dl0=
-github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20240718082304-6c749d77bd5a/go.mod h1:ThmsVGfj0muqxC3i7Rvyg1GVb+B39mQFuEoHnqF1MBA=
+github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20241011103527-e8cea809b65b h1:dg0GewlNnRP4PKK7FSxvQvH56TZ1NebHXy+336x1J1c=
+github.com/Conflux-Chain/go-conflux-util v0.2.2-0.20241011103527-e8cea809b65b/go.mod h1:ThmsVGfj0muqxC3i7Rvyg1GVb+B39mQFuEoHnqF1MBA=
 github.com/DATA-DOG/go-sqlmock v1.3.3/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
 github.com/DataDog/zstd v1.4.5 h1:EndNeuB0l9syBZhut0wns3gV1hL8zX8LIu6ZiVHWLIQ=
 github.com/DataDog/zstd v1.4.5/go.mod h1:1jcaCB/ufaK+sKp1NBhlGmpz41jOoPQ35bpF36t7BBo=
