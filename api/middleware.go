@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
+	"math/rand"
 	"net/http"
 	"time"
 
-	mathutil "github.com/Conflux-Chain/go-conflux-util/math"
 	"github.com/Conflux-Chain/web3pay-service/client/jsonrpc"
 	"github.com/Conflux-Chain/web3pay-service/metrics"
 	"github.com/Conflux-Chain/web3pay-service/model"
@@ -66,7 +65,7 @@ func jsonRpcMessageFromContext(ctx context.Context) *jsonrpc.RPCRequest {
 func LogTracingMiddleware(prefix string) mux.MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			reqId := mathutil.RandUint64(uint64(math.MaxUint32))
+			reqId := rand.Uint32()
 			newCtx := context.WithValue(r.Context(), ctxKeyRequestId, fmt.Sprintf("%v#%d", prefix, reqId))
 			newReq := r.WithContext(newCtx)
 			next.ServeHTTP(w, newReq)

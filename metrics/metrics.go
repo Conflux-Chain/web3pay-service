@@ -3,7 +3,7 @@ package metrics
 import (
 	metricUtil "github.com/Conflux-Chain/go-conflux-util/metrics"
 	"github.com/Conflux-Chain/web3pay-service/util"
-	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/rcrowley/go-metrics"
 )
 
 var (
@@ -18,12 +18,12 @@ type RpcMetrics struct{}
 
 func (*RpcMetrics) UpdateWithCollector(c *RpcCollector) {
 	// Overall rate statistics
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(100, "/rpc/rate/success").Mark(c.success())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/bizErr").Mark(c.isBizError())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/success").Mark(c.success())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/bizErr").Mark(c.isBizError())
 
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/2xx").Mark(c.is2xx())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/4xx").Mark(c.is4xx())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/5xx").Mark(c.is5xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/2xx").Mark(c.is2xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/4xx").Mark(c.is4xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/5xx").Mark(c.is5xx())
 
 	metricUtil.GetOrRegisterTimer("/rpc/duration/all").UpdateSince(c.start)
 	if c.success() {
@@ -45,11 +45,11 @@ func (*RpcMetrics) UpdateWithCollector(c *RpcCollector) {
 	}
 
 	// RPC rate statistics
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(100, "/rpc/rate/success/%v", module).Mark(c.success())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/bizErr/%v", module).Mark(c.isBizError())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/2xx/%v", module).Mark(c.is2xx())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/4xx/%v", module).Mark(c.is4xx())
-	metricUtil.GetOrRegisterTimeWindowPercentageDefault(0, "/rpc/rate/5xx/%v", module).Mark(c.is5xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/success/%v", module).Mark(c.success())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/bizErr/%v", module).Mark(c.isBizError())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/2xx/%v", module).Mark(c.is2xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/4xx/%v", module).Mark(c.is4xx())
+	metricUtil.GetOrRegisterTimeWindowPercentageDefault("/rpc/rate/5xx/%v", module).Mark(c.is5xx())
 
 	metricUtil.GetOrRegisterTimer("/rpc/duration/%v", module).UpdateSince(c.start)
 	if c.success() {
