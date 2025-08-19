@@ -222,7 +222,7 @@ func (p *Provider) BatchChargeAppBills(
 		To:       &app,
 		GasPrice: gasPrice,
 		Data:     data,
-	}, &latestBlockNumberOrHash)
+	}, &latestBlockNumberOrHash, nil, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to estimate gas")
 	}
@@ -270,7 +270,7 @@ func (p *Provider) FlushApiWeightTokenPendingConfig(opts *bind.TransactOpts, awt
 		To:       &awtAddr,
 		GasPrice: gasPrice,
 		Data:     data,
-	}, &latestBlockNumberOrHash)
+	}, &latestBlockNumberOrHash, nil, nil)
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to estimate gas")
 	}
