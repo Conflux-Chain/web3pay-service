@@ -1,6 +1,6 @@
 module github.com/Conflux-Chain/web3pay-service
 
-go 1.23.0
+go 1.24
 
 require (
 	github.com/Conflux-Chain/go-conflux-util v0.7.4
@@ -89,7 +89,7 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/klauspost/compress v1.16.0 // indirect
+	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
