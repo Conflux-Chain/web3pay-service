@@ -3,7 +3,7 @@ module github.com/Conflux-Chain/web3pay-service
 go 1.26.11
 
 require (
-	github.com/Conflux-Chain/go-conflux-util v0.7.4
+	github.com/Conflux-Chain/go-conflux-util v0.8.1
 	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gammazero/workerpool v1.1.2
@@ -101,13 +101,14 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/compress v1.18.7 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-isatty v0.0.23 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/minlz v1.0.1-0.20250507153514-87eb42fe8882 // indirect
