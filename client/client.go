@@ -162,7 +162,7 @@ func NewVipSubscriptionClient(conf VipSubscriptionClientConfig) (*VipSubscriptio
 		return nil, errors.WithMessage(err, "failed to new `web3go` client")
 	}
 
-	clientForContract, _ := w3c.ToClientForContract()
+	clientForContract, _ := contract.NewClientForContract(w3c)
 
 	// App contract stub
 	app := common.HexToAddress(conf.AppContract)

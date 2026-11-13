@@ -28,7 +28,7 @@ const (
 
 type contractBindCallContext struct {
 	signerAddress  common.Address
-	contractClient *web3go.ClientForContract
+	contractClient *contract.ClientForContract
 	signer         bind.SignerFn
 }
 
@@ -68,7 +68,7 @@ func MustNewProvider(config *Config) *Provider {
 		logrus.WithError(err).Fatal("Failed to get latest block number")
 	}
 
-	clientForContract, singerFn := w3c.ToClientForContract()
+	clientForContract, singerFn := contract.NewClientForContract(w3c)
 
 	// init AppRegistry contract stub
 	appRegistryCaller, err := contract.NewAppRegistry(config.AppRegistryContractAddr, clientForContract)
