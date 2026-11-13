@@ -12,7 +12,8 @@ import (
 	"github.com/openweb3/web3go"
 )
 
-// ClientForContract adds geth's transaction lookup to the web3go contract backend.
+// ClientForContract preserves geth's full transaction decoding for contract lookups.
+// web3go's transaction lookup drops blob fields before converting to a geth transaction.
 type ClientForContract struct {
 	*web3go.ClientForContract
 	client *web3go.Client

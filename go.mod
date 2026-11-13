@@ -3,7 +3,7 @@ module github.com/Conflux-Chain/web3pay-service
 go 1.26.11
 
 require (
-	github.com/Conflux-Chain/go-conflux-util v0.8.1
+	github.com/Conflux-Chain/go-conflux-util v0.8.2
 	github.com/MoeYang/go-queue v0.0.0-20210407055646-c5a229ee466c
 	github.com/ethereum/go-ethereum v1.17.10
 	github.com/gammazero/workerpool v1.1.2
@@ -13,9 +13,10 @@ require (
 	github.com/gorilla/rpc v1.2.0
 	github.com/hashicorp/go-memdb v1.3.3
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
+	github.com/holiman/uint256 v1.3.2
 	github.com/mcuadros/go-defaults v1.2.0
-	github.com/openweb3/go-rpc-provider v0.3.9
-	github.com/openweb3/web3go v0.3.7
+	github.com/openweb3/go-rpc-provider v0.3.10
+	github.com/openweb3/web3go v0.3.8
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9
@@ -94,7 +95,6 @@ require (
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
-	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/influxdb1-client v0.0.0-20220302092344-a9ab5670611c // indirect
@@ -117,7 +117,7 @@ require (
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/openweb3/go-ethereum-hdwallet v0.1.0 // indirect
-	github.com/openweb3/go-sdk-common v0.0.0-20261112080213-2a43cf71b367 // indirect
+	github.com/openweb3/go-sdk-common v0.1.0 // indirect
 	github.com/pelletier/go-toml v1.9.4 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/logging v0.2.4 // indirect
