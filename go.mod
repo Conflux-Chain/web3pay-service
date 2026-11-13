@@ -14,8 +14,8 @@ require (
 	github.com/hashicorp/go-memdb v1.3.3
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/mcuadros/go-defaults v1.2.0
-	github.com/openweb3/go-rpc-provider v0.3.6
-	github.com/openweb3/web3go v0.3.3
+	github.com/openweb3/go-rpc-provider v0.3.9
+	github.com/openweb3/web3go v0.3.7
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9
@@ -116,7 +116,7 @@ require (
 	github.com/mitchellh/pointerstructure v1.2.0 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/openweb3/go-ethereum-hdwallet v0.1.0 // indirect
-	github.com/openweb3/go-sdk-common v0.0.0-20240627072707-f78f0155ab34 // indirect
+	github.com/openweb3/go-sdk-common v0.0.0-20261112080213-2a43cf71b367 // indirect
 	github.com/pelletier/go-toml v1.9.4 // indirect
 	github.com/pion/dtls/v3 v3.1.5 // indirect
 	github.com/pion/logging v0.2.4 // indirect
