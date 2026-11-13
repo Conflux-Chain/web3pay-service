@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 		requestChan <- &RequestData{r, string(data)}
 
 		w.WriteHeader(httpStatusCode)
-		fmt.Fprintf(w, responseBody)
+		fmt.Fprint(w, responseBody)
 	}))
 	defer httpServer.Close()
 

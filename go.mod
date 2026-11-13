@@ -1,6 +1,6 @@
 module github.com/Conflux-Chain/web3pay-service
 
-go 1.23.0
+go 1.26.11
 
 require (
 	github.com/Conflux-Chain/go-conflux-util v0.7.4
